@@ -1,0 +1,59 @@
+---
+title: "Project 2 EDA"
+author: 'MSDS 6372: Rob Lane'
+date: "`r Sys.Date()`"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F)
+```
+
+```{r}
+library(aplore3)
+#head(glow_bonemed)
+```
+
+glow_bonemed variables:
+
+| **Variable** | **Type**     | **Description**                                                                                                                                 |
+|--------------|--------------|-------------------------------------------------------------------------------------------------------------------------------------------------|
+| bonemed      | 2-factor     | Bone medications at enrollment (1: No, 2: Yes)                                                                                                  |
+| bonemed_fu   | 2-factor     | Bone medications at follow-up (1: No, 2: Yes)                                                                                                   |
+| bonetreat    | 2-factor     | Bone medications both at enrollment and follow-up (1: No, 2: Yes)                                                                               |
+| sub_id       | int          | Identification Code (1 - n)                                                                                                                     |
+| site_id      | int          | Study Site (1 - 6)                                                                                                                              |
+| phy_id       | int          | Physician ID code (128 unique codes)                                                                                                            |
+| priorfrac    | 2-factor     | History of Prior Fracture (1: No, 2: Yes)                                                                                                       |
+| age          | int          | Age at Enrollment (Years)                                                                                                                       |
+| weight       | num          | Weight at enrollment (Kilograms)                                                                                                                |
+| height       | int          | Height at enrollment (Centimeters)                                                                                                              |
+| bmi          | num          | Body Mass Index ($\frac{kg}{m^2}$)                                                                                                              |
+| premeno      | 2-factor     | Menopause before age 45 (1: No, 2: Yes)                                                                                                         |
+| momfrac      | 2-factor     | Mother had hip fracture (1: No, 2: Yes)                                                                                                         |
+| armassist    | 2-factor     | Arms are needed to stand from a chair (1: No, 2: Yes)                                                                                           |
+| smoke        | 2-factor     | Former or current smoker (1: No, 2: Yes)                                                                                                        |
+| raterisk     | 3-factor     | Self-reported risk of fracture (1: Less than others of the same age, 2: Same as others of the same age, 3: Greater than others of the same age) |
+| fracscore    | int          | Fracture Risk Score (Composite Risk Score)                                                                                                      |
+| **fracture** | **2-factor** | **Any fracture in first year (1: No, 2: Yes)**                                                                                                  |
+
+```{r, echo=F, fig.width=7.5, fig.height=7.5}
+library(graphics)
+bone <- glow_bonemed
+#Survived = 1, Perished = 0.  Therefore, salmon means perished, turquoise means survived.
+class_colors <- c("salmon", "turquoise")
+
+#Excluding IDs because they don't describe the problem.
+exclude_vars <- c("sub_id", "site_id", "phy_id")
+include_cols <- setdiff(names(bone), exclude_vars)
+
+pairs(bone[, include_cols],
+      col = class_colors[bone$fracture])
+```
+
+**Multicollinearity Found:**  
+fracscore : age  
+bmi : weight  
+site_id : phy_id  *
+
+
