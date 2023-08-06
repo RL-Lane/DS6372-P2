@@ -16,26 +16,26 @@ library(aplore3)
 
 glow_bonemed variables:
 
-| **Variable** | **Type**     | **Description**                                                                                                                                 |
-|--------------|--------------|-------------------------------------------------------------------------------------------------------------------------------------------------|
-| bonemed      | 2-factor     | Bone medications at enrollment (1: No, 2: Yes)                                                                                                  |
-| bonemed_fu   | 2-factor     | Bone medications at follow-up (1: No, 2: Yes)                                                                                                   |
-| bonetreat    | 2-factor     | Bone medications both at enrollment and follow-up (1: No, 2: Yes)                                                                               |
-| sub_id       | int          | Identification Code (1 - n)                                                                                                                     |
-| site_id      | int          | Study Site (1 - 6)                                                                                                                              |
-| phy_id       | int          | Physician ID code (128 unique codes)                                                                                                            |
-| priorfrac    | 2-factor     | History of Prior Fracture (1: No, 2: Yes)                                                                                                       |
-| age          | int          | Age at Enrollment (Years)                                                                                                                       |
-| weight       | num          | Weight at enrollment (Kilograms)                                                                                                                |
-| height       | int          | Height at enrollment (Centimeters)                                                                                                              |
-| bmi          | num          | Body Mass Index ($\frac{kg}{m^2}$)                                                                                                              |
-| premeno      | 2-factor     | Menopause before age 45 (1: No, 2: Yes)                                                                                                         |
-| momfrac      | 2-factor     | Mother had hip fracture (1: No, 2: Yes)                                                                                                         |
-| armassist    | 2-factor     | Arms are needed to stand from a chair (1: No, 2: Yes)                                                                                           |
-| smoke        | 2-factor     | Former or current smoker (1: No, 2: Yes)                                                                                                        |
-| raterisk     | 3-factor     | Self-reported risk of fracture (1: Less than others of the same age, 2: Same as others of the same age, 3: Greater than others of the same age) |
-| fracscore    | int          | Fracture Risk Score (Composite Risk Score)                                                                                                      |
-| **fracture** | **2-factor** | **Any fracture in first year (1: No, 2: Yes)**                                                                                                  |
+| **Variable** | **Type**     | **Description**                                                                                                                                     |
+|--------------|--------------|-----------------------------------------------------------------------------------------------------------------------------------------------------|
+| bonemed      | 2-factor     | Bone medications at enrollment (1: No, 2: Yes)                                                                                                      |
+| bonemed_fu   | 2-factor     | Bone medications at follow-up (1: No, 2: Yes)                                                                                                       |
+| bonetreat    | 2-factor     | Bone medications both at enrollment and follow-up (1: No, 2: Yes)                                                                                   |
+| sub_id       | int          | Identification Code (1 - n)                                                                                                                         |
+| site_id      | int          | Study Site (1 - 6)                                                                                                                                  |
+| phy_id       | int          | Physician ID code (128 unique codes)                                                                                                                |
+| priorfrac    | 2-factor     | History of Prior Fracture (1: No, 2: Yes)                                                                                                           |
+| age          | int          | Age at Enrollment (Years)                                                                                                                           |
+| weight       | num          | Weight at enrollment (Kilograms)                                                                                                                    |
+| height       | int          | Height at enrollment (Centimeters)                                                                                                                  |
+| bmi          | num          | Body Mass Index ($\frac{kg}{m^2}$)                                                                                                                  |
+| premeno      | 2-factor     | Menopause before age 45 (1: No, 2: Yes)                                                                                                             |
+| momfrac      | 2-factor     | Mother had hip fracture (1: No, 2: Yes)                                                                                                             |
+| armassist    | 2-factor     | Arms are needed to stand from a chair (1: No, 2: Yes)                                                                                               |
+| smoke        | 2-factor     | Former or current smoker (1: No, 2: Yes)                                                                                                            |
+| raterisk     | 3-factor     | Self-reported risk of fracture (1: Less than others of the same age, <br>2: Same as others of the same age, 3: Greater than others of the same age) |
+| fracscore    | int          | Fracture Risk Score (Composite Risk Score)                                                                                                          |
+| **fracture** | **2-factor** | **Any fracture in first year (1: No, 2: Yes)**                                                                                                      |
 
 ```{r, echo=F, fig.width=7.5, fig.height=7.5}
 library(graphics)
@@ -48,12 +48,89 @@ exclude_vars <- c("sub_id", "site_id", "phy_id")
 include_cols <- setdiff(names(bone), exclude_vars)
 
 pairs(bone[, include_cols],
-      col = class_colors[bone$fracture])
+      col = class_colors[ifelse(bone$fracture=="Yes",2,1)])
 ```
+
+Note: Turqoise indicates a bone fracture within the first year occured.
 
 **Multicollinearity Found:**  
 fracscore : age  
 bmi : weight  
-site_id : phy_id  *
+site_id : phy_id  *Because the IDs don't really tell much without factoring, and because there are a high number of factors within this class, these last two should be omitted from the model.  The code above reflects this change.*
+
+```{r proportions}
+library(ggplot2)
+library(dplyr)
+
+# Calculate the proportion of fractures by age
+
+g <- bone %>%
+  group_by(fracture,bonemed) %>%
+    summarise(cnt = n()) %>%
+    mutate(perc=round(cnt/sum(cnt),4))
+
+# Create the ggplot
+# 
+class_colors <- c("No" = "salmon", "Yes" = "turquoise")
+
+
+ggplot(g, aes(x = bonemed, y = perc, colour = fracture)) +
+  geom_bar(aes(fill = fracture), stat = "identity", position = "dodge") +
+  scale_colour_manual(values = class_colors) +
+  scale_fill_manual(values = class_colors) +
+  ylab("Proportion of fracture by age")
+
+```
+```{r proportions_list, message=F, fig.width = 7, fig.height = 7}
+library(ggplot2)
+library(dplyr)
+library(patchwork)
+
+
+# Step 1: Create a list of factor variables
+variable_list <- c("bonemed", "bonemed_fu", "bonetreat", "priorfrac", "premeno", "momfrac", "armassist", "smoke", "raterisk")
+
+# Create an empty list to store the plots
+plots_list <- list()
+
+# Step 2: Create a loop to generate plots for each variable and store them in the list
+for (variable in variable_list) {
+  g <- bone %>%
+    group_by(fracture, !!as.name(variable)) %>%
+    summarise(cnt = n()) %>%
+    mutate(perc = round(cnt / sum(cnt), 4))
+  
+  class_colors <- c("No" = "salmon", "Yes" = "turquoise")
+  
+  plot <- ggplot(g, aes(x = !!as.name(variable), y = perc, colour = fracture)) +
+    geom_bar(aes(fill = fracture), stat = "identity", position = "dodge") +
+    scale_colour_manual(values = class_colors) +
+    scale_fill_manual(values = class_colors) +
+    ylab("Proportion") +
+    labs(title = paste("Variable:", variable)) +# Add a title to each plot
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +# Rotate x-axis labels by 45 degrees
+    guides(fill=F, color=F) # Hide individual legends for each plot since they're all the same.
+  
+  # Store the plot in the list
+  plots_list[[variable]] <- plot
+}
+
+# Combine the plots into a 3x3 grid using patchwork
+grid_plot <- wrap_plots(plotlist = plots_list, ncol = 3)
+
+# Create a separate plot for the legend
+legend_plot <- ggplot(bone, aes(x = "", y = "", fill = fracture)) +
+  geom_bar(stat = "identity", position = "dodge", width=.5, just=.1) +
+  scale_fill_manual(values = class_colors) +
+  guides(fill = guide_legend(title = "Fracture", keywidth = 0.7, keyheight = 0.5, size = 2)) + # Customize the legend title, size, and key size
+  theme_void() + # Remove unnecessary elements from the plot, leaving only the legend
+  theme(legend.text = element_text(size = 8)) # Adjust the size of the legend text
+
+# Combine the grid of plots and the legend plot using patchwork
+final_plot <- grid_plot + legend_plot
+
+# Display the final combined plot
+print(final_plot)
+```
 
 
