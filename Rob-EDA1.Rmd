@@ -58,29 +58,7 @@ fracscore : age
 bmi : weight  
 site_id : phy_id  *Because the IDs don't really tell much without factoring, and because there are a high number of factors within this class, these last two should be omitted from the model.  The code above reflects this change.*
 
-```{r proportions}
-library(ggplot2)
-library(dplyr)
 
-# Calculate the proportion of fractures by age
-
-g <- bone %>%
-  group_by(fracture,bonemed) %>%
-    summarise(cnt = n()) %>%
-    mutate(perc=round(cnt/sum(cnt),4))
-
-# Create the ggplot
-# 
-class_colors <- c("No" = "salmon", "Yes" = "turquoise")
-
-
-ggplot(g, aes(x = bonemed, y = perc, colour = fracture)) +
-  geom_bar(aes(fill = fracture), stat = "identity", position = "dodge") +
-  scale_colour_manual(values = class_colors) +
-  scale_fill_manual(values = class_colors) +
-  ylab("Proportion of fracture by age")
-
-```
 ```{r proportions_list, message=F, fig.width = 7, fig.height = 7}
 library(ggplot2)
 library(dplyr)
@@ -132,5 +110,53 @@ final_plot <- grid_plot + legend_plot
 # Display the final combined plot
 print(final_plot)
 ```
+
+```{r loess_list, fig.width=6, fig.height=4, message=F}
+  #class_colors <- c("No" = "salmon", "Yes" = "turquoise")
+
+# Step 1: Create a list of factor variables
+variable_list <- c("age", "weight", "height", "bmi", "fracscore")
+
+# Create an empty list to store the plots
+plots_list <- list()
+
+for (variable in variable_list) 
+{
+  plot <- ggplot(bone, aes(x = !!as.name(variable), y = ifelse(fracture == "Yes",1,0))) +
+            geom_point() +
+            geom_smooth(method = "loess", size = 1, span = 0.75) +
+            ylim(-0.2, 1.2) +
+            ylab("Fracture = 1")
+  plots_list[[variable]] <- plot
+  
+
+}
+
+# plots_list[["legend"]] <- ggplot(bone, aes(x = "", y = "", fill = fracture)) +
+#   geom_bar(stat = "identity", position = "dodge", width=.5, just=.1) +
+#   scale_fill_manual(values = class_colors) +
+#   guides(fill = guide_legend(title = "Fracture", keywidth = 0.7, keyheight = 0.5, size = 2)) + # Customize the legend title, size, and key size
+#   theme_void() + # Remove unnecessary elements from the plot, leaving only the legend
+#   theme(legend.text = element_text(size = 8)) # Adjust the size of the legend text
+
+grid_plot <- wrap_plots(plotlist = plots_list, ncol = 3)
+
+print(grid_plot)
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
