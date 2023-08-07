@@ -42,8 +42,8 @@ glow_bonemed variables:
 ```{r, echo=F, fig.width=7.5, fig.height=7.5}
 library(graphics)
 bone <- glow_bonemed
-#Survived = 1, Perished = 0.  Therefore, salmon means perished, turquoise means survived.
-class_colors <- c("salmon", "turquoise")
+#Survived = 1, Perished = 0.  Therefore, #005d8c means perished, #ec9d3f means survived.
+class_colors <- c("#005d8c", "#ec9d3f")
 
 #Excluding IDs because they don't describe the problem.
 exclude_vars <- c("sub_id", "site_id", "phy_id")
@@ -81,7 +81,7 @@ for (variable in factor_list) {
     summarise(cnt = n()) %>%
     mutate(perc = round(cnt / sum(cnt), 4))
   
-  class_colors <- c("No" = "salmon", "Yes" = "turquoise")
+  class_colors <- c("No" = "#005d8c", "Yes" = "#ec9d3f")
   
   plot <- ggplot(g, aes(x = !!as.name(variable), y = perc, colour = fracture)) +
     geom_bar(aes(fill = fracture), stat = "identity", position = "dodge") +
@@ -115,7 +115,7 @@ print(final_plot)
 ```
 
 ```{r loess_list, fig.width=6, fig.height=4, message=F}
-  #class_colors <- c("No" = "salmon", "Yes" = "turquoise")
+  #class_colors <- c("No" = "#005d8c", "Yes" = "#ec9d3f")
 
 # Step 1: Create a list of factor variables
 numeric_list <- c("age", "weight", "height", "bmi", "fracscore")
@@ -192,6 +192,7 @@ interactions <-c(
   c("bonemed_fu", "bmi"),    #9
   c("bonetreat",  "weight"),#12
   c("bonetreat",  "bmi"),   #14
+  c("priorfrac",  "age"),   #16
   c("priorfrac",  "weight"),#17
   c("priorfrac",  "bmi"),   #19
   c("momfrac",    "age"),   #26
@@ -201,7 +202,7 @@ interactions <-c(
   c("raterisk",   "weight") #42
 )
 
-inter_nums <- c(2, 4, 7, 8, 9, 12, 14, 17, 19, 26, 27, 29, 38, 42)
+inter_nums <- c(2, 4, 7, 8, 9, 12, 14, 16, 17, 19, 26, 27, 29, 38, 42)
 
 color_scale <- c("red", "blue", "black")
 
