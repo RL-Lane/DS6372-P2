@@ -2,7 +2,9 @@
 title: "Project 2 EDA"
 author: 'MSDS 6372: Rob Lane'
 date: "`r Sys.Date()`"
-output: word_document
+output:
+  html_document:
+    df_print: paged
 ---
 
 ```{r setup, include=FALSE}
@@ -49,6 +51,7 @@ include_cols <- setdiff(names(bone), exclude_vars)
 
 pairs(bone[, include_cols],
       col = class_colors[ifelse(bone$fracture=="Yes",2,1)])
+
 ```
 
 Note: Turqoise indicates a bone fracture within the first year occured.
@@ -66,13 +69,13 @@ library(patchwork)
 
 
 # Step 1: Create a list of factor variables
-variable_list <- c("bonemed", "bonemed_fu", "bonetreat", "priorfrac", "premeno", "momfrac", "armassist", "smoke", "raterisk")
+factor_list <- c("bonemed", "bonemed_fu", "bonetreat", "priorfrac", "premeno", "momfrac", "armassist", "smoke", "raterisk")
 
 # Create an empty list to store the plots
 plots_list <- list()
 
 # Step 2: Create a loop to generate plots for each variable and store them in the list
-for (variable in variable_list) {
+for (variable in factor_list) {
   g <- bone %>%
     group_by(fracture, !!as.name(variable)) %>%
     summarise(cnt = n()) %>%
@@ -115,12 +118,12 @@ print(final_plot)
   #class_colors <- c("No" = "salmon", "Yes" = "turquoise")
 
 # Step 1: Create a list of factor variables
-variable_list <- c("age", "weight", "height", "bmi", "fracscore")
+numeric_list <- c("age", "weight", "height", "bmi", "fracscore")
 
 # Create an empty list to store the plots
 plots_list <- list()
 
-for (variable in variable_list) 
+for (variable in numeric_list) 
 {
   plot <- ggplot(bone, aes(x = !!as.name(variable), y = ifelse(fracture == "Yes",1,0))) +
             geom_point() +
@@ -144,9 +147,96 @@ grid_plot <- wrap_plots(plotlist = plots_list, ncol = 3)
 print(grid_plot)
 ```
 
+```{r loess_interactions, message=F, eval=F}
+color_scale <- c("red","blue","black")
 
 
+i=0
+plots_list <- list()
 
+for (factor in factor_list){
+  for (numeric in numeric_list) {
+    i <- i +1
+    plot <- ggplot(bone, aes(x = !!as.name(numeric), y = ifelse(fracture == "Yes",1,0), colour=factor(!!as.name(factor)))) +
+              geom_point() +
+              geom_smooth(method = "loess", size = 1, span = 1) +
+              ylim(-0.2, 1.2) +
+              ylab("Fracture = 1") +
+              scale_colour_manual(values = color_scale) +
+              labs(title=paste0("Interaction #",i))
+    
+    print(plot)
+    #plots_list[[variable]] <- plot
+    #plots_list[[paste(factor, numeric, sep = "_")]] <- plot
+  }
+}
+
+# Combine the plots into a grid using patchwork
+#grid_plot <- wrap_plots(plotlist = plots_list, ncol = 3)
+
+#print(grid_plot)
+```
+
+```{r loess_interactions_2, message=F, fig.width=7, fig.height=9}
+# library(ggplot2)
+# library(dplyr)
+# library(patchwork)
+
+# This is not intended to be the final list of interactions, just those that seemed worthy of further exploration from above.
+interactions <-c(
+  # factor, numeric
+  c("bonemed",    "weight"), #2
+  c("bonemed",    "bmi"),    #4
+  c("bonemed_fu", "weight"), #7
+  c("bonemed_fu", "height"), #8
+  c("bonemed_fu", "bmi"),    #9
+  c("bonetreat",  "weight"),#12
+  c("bonetreat",  "bmi"),   #14
+  c("priorfrac",  "weight"),#17
+  c("priorfrac",  "bmi"),   #19
+  c("momfrac",    "age"),   #26
+  c("momfrac",    "weight"),#27
+  c("momfrac",    "bmi"),   #29
+  c("smoke",      "height"),#38
+  c("raterisk",   "weight") #42
+)
+
+inter_nums <- c(2, 4, 7, 8, 9, 12, 14, 17, 19, 26, 27, 29, 38, 42)
+
+color_scale <- c("red", "blue", "black")
+
+i <- 0
+plots_list <- list()
+for (factor in factor_list) {
+  for (numeric in numeric_list) {
+    i <- i + 1
+    if (i %in% inter_nums) {
+      # Remove NAs before creating the plot
+      bone_plot <- na.omit(bone)
+      
+      plot <- ggplot(bone_plot, aes(x = !!as.name(numeric), y = ifelse(fracture == "Yes", 1, 0), colour = factor(!!as.name(factor)))) +
+        geom_point() +
+        geom_smooth(method = "loess", size = 1, span = 1) +
+        ylim(-0.2, 1.2) +
+        ylab("Fracture = 1") + 
+        xlab(paste(numeric," vs. ", factor,".fac",sep="")) +
+        scale_colour_manual(values = color_scale) +
+        guides(fill=F, color=F) # Hide individual legends for each plot 
+
+      
+      plots_list[[paste(factor, numeric, sep = "_")]] <- plot
+    }
+  }
+}
+
+# Combine the plots into a grid using patchwork
+grid_plot <- wrap_plots(plotlist = plots_list, ncol = 3)
+
+print(grid_plot)
+
+
+#Note: when momfrac has an interaction, the numeric may have a poly(2) term
+```
 
 
 
