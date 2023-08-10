@@ -7,9 +7,8 @@ output:
     df_print: paged
 ---
 
-TESTING IF THIS PUTS IT IN MY BRANCH
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = F)
+```{r setup, include=TRUE}
+knitr::opts_chunk$set(echo = T)
 ```
 # Libraries
 ```{r}
@@ -17,6 +16,9 @@ knitr::opts_chunk$set(echo = F)
 library(class)
 library(e1071)
 library(caret)
+
+# Library for ROC
+library(pROC)
 ```
 # Data
 ```{r}
@@ -247,6 +249,16 @@ print(grid_plot)
 ```
 # KNN
 ```{r KNN prediction models}
+# Set factors as binaries
+bone$priorfrac_num<-ifelse(bone$priorfrac=="Yes",1,0)
+bone$premeno_num<-ifelse(bone$premeno=="Yes",1,0)
+bone$momfrac_num<-ifelse(bone$momfrac=="Yes",1,0)
+bone$armassist_num<-ifelse(bone$armassist=="Yes",1,0)
+bone$smoke_num<-ifelse(bone$smoke=="Yes",1,0)
+bone$raterisk_num<-ifelse(bone$raterisk=="Less",0,ifelse(bone$raterisk=="Same",1,2))
+bone$bonemed_num<-ifelse(bone$bonemed=="Yes",1,0)
+bone$bonemed_fu_num<-ifelse(bone$bonemed_fu=="Yes",1,0)
+bone$bonetreat_num<-ifelse(bone$bonetreat=="Yes",1,0)
 
 # Split our data into a train and test set
 splitPerc = .7
@@ -254,21 +266,66 @@ trainIndices = sample(1:dim(bone)[1],round(splitPerc * dim(bone)[1]))
 dftrain = bone[trainIndices,]
 dftest = bone[-trainIndices,]
 
-# k = 3 for raw data
+# k = 3 for 3 Continuous Variables with Strong Evidence via Ttest
+fitControl<-trainControl(method="repeatedcv",number=10,repeats=1,classProbs=TRUE, summaryFunction=mnLogLoss)
+knn_model1 <-train(fracture ~ age+height+fracscore,
+                           data=dftrain,
+                    method="knn",
+                    trControl=fitControl,
+                    tuneLength=3,
+                             metric="logLoss")
 classifications = knn(dftrain[,c(5,7,14)],dftest[,c(5,7,14)],dftrain$fracture, 
                       prob = TRUE, k = 3)
 table(classifications,dftest$fracture)
-confusionMatrix(table(classifications,dftest$fracture))
+confusionMatrix(table(classifications,dftest$fracture), positive = "Yes")
 
-# k = 15 for raw data
+# k = 15 for 3 Continuous Variables with Strong Evidence via Ttest
+fitControl<-trainControl(method="repeatedcv",number=10,repeats=1,classProbs=TRUE, summaryFunction=mnLogLoss)
+knn_model2 <-train(fracture ~ age+height+fracscore,
+                           data=dftrain,
+                    method="knn",
+                    trControl=fitControl,
+                    tuneLength=15,
+                             metric="logLoss")
 classifications = knn(dftrain[,c(5,7,14)],dftest[,c(5,7,14)],dftrain$fracture, 
                       prob = TRUE, k = 15)
 table(classifications,dftest$fracture)
-confusionMatrix(table(classifications,dftest$fracture))
+confusionMatrix(table(classifications,dftest$fracture), positive = "Yes")
+
+# k = 15 for all variables
+fitControl<-trainControl(method="repeatedcv",number=10,repeats=1,classProbs=TRUE, summaryFunction=mnLogLoss)
+knn_model3 <-train(fracture ~ age+weight+height+bmi+
+                     fracscore+priorfrac_num+premeno_num+
+                     momfrac_num+armassist_num+smoke_num+bonemed_num+
+                     bonemed_fu_num+bonetreat_num+raterisk_num,
+                           data=dftrain,
+                    method="knn",
+                    trControl=fitControl,
+                    tuneLength=15,
+                             metric="logLoss")
+classifications = knn(dftrain[,c(5,7,14,19:27)],dftest[,c(5,7,14,19:27)],dftrain$fracture, 
+                      prob = TRUE, k = 15)
+table(classifications,dftest$fracture)
+confusionMatrix(table(classifications,dftest$fracture), positive = "Yes")
+
+# k = 15 for Custom Complex Model
+fitControl<-trainControl(method="repeatedcv",number=10,repeats=1,classProbs=TRUE, summaryFunction=mnLogLoss)
+knn_model4 <-train(fracture ~ age+height+priorfrac_num+
+                     momfrac_num+armassist_num+bonemed_num+
+                     bonemed_fu_num+bonetreat_num+raterisk_num,
+                           data=dftrain,
+                    method="knn",
+                    trControl=fitControl,
+                    tuneLength=15,
+                             metric="logLoss")
+classifications = knn(dftrain[,c(7,19,21,22,24:27)],dftest[,c(7,19,21,22,24:27)],dftrain$fracture, 
+                      prob = TRUE, k = 15)
+table(classifications,dftest$fracture)
+confusionMatrix(table(classifications,dftest$fracture), positive = "Yes")
 ```
 
-```{r Loop to find best k, eval=FALSE}
-
+```{r Loop to find best k}
+# Continuous Variables
 # Loop for many k and the average of many training / test partition
 iterations = 500
 numks = 30
@@ -285,7 +342,34 @@ for(i in 1:numks)
 {
   classifications = knn(train[,c(5,7,14)],test[,c(5,7,14)],train$fracture, prob = TRUE, k = i)
   table(classifications,test$fracture)
-  CM = confusionMatrix(table(classifications,test$fracture))
+  CM = confusionMatrix(table(classifications,test$fracture), positive = "Yes")
+  masterAcc[j,i] = CM$overall[1]
+}
+
+}
+
+MeanAcc = colMeans(masterAcc)
+
+plot(seq(1,numks,1),MeanAcc, type = "l")
+
+# Continuous & Categorical Variables
+# Loop for many k and the average of many training / test partition
+iterations = 500
+numks = 30
+
+masterAcc = matrix(nrow = iterations, ncol = numks)
+  
+for(j in 1:iterations)
+{
+accs = data.frame(accuracy = numeric(30), k = numeric(30))
+trainIndices = sample(1:dim(bone)[1],round(splitPerc * dim(bone)[1]))
+train = bone[trainIndices,]
+test = bone[-trainIndices,]
+for(i in 1:numks)
+{
+  classifications = knn(train[,c(5:8,14,19:27)],test[,c(5:8,14,19:27)],train$fracture, prob = TRUE, k = i)
+  table(classifications,test$fracture)
+  CM = confusionMatrix(table(classifications,test$fracture), positive = "Yes")
   masterAcc[j,i] = CM$overall[1]
 }
 
@@ -297,10 +381,65 @@ plot(seq(1,numks,1),MeanAcc, type = "l")
 ```
 Let's run a Cross Validation on the model:
 ```{r}
-#Internal CV
-classifications = knn.cv(bone[,c(5,7,14)],bone$fracture,prob = TRUE, k = 3)
-confusionMatrix(table(classifications,bone$fracture))
+#Internal CV for continuous variables
+classifications = knn.cv(bone[,c(5,7,14)],bone$fracture,prob = TRUE, k = 15)
+confusionMatrix(table(classifications,bone$fracture), positive = "Yes")
 
+#Internal CV for all variables
+classifications = knn.cv(bone[,c(5:8,14,19:27)],bone$fracture,prob = TRUE, k = 15)
+confusionMatrix(table(classifications,bone$fracture), positive = "Yes")
+
+```
+
+```{r}
+fitControl<-trainControl(method="repeatedcv",number=10,repeats=1,classProbs=TRUE, summaryFunction=mnLogLoss)
+knn_model <-train(fracture ~ age+height+fracscore+priorfrac_num+premeno_num+
+                    momfrac_num+armassist_num+smoke_num+bonemed_num+
+                    bonemed_fu_num+bonetreat_num+raterisk_num,
+                           data=dftrain,
+                    method="knn",
+                    trControl=fitControl,
+                    tuneLength=5,
+                             metric="logLoss")
+```
+
+```{r}
+# knn_model1
+knn1.predprobs <- predict(knn_model1, dftrain, type = "prob")[,"Yes"]
+knn1.roc <- roc(response=dftrain$fracture, predictor = knn1.predprobs, levels = c("No", "Yes"))
+
+plot(knn1.roc, col = "blue", print.thres="best",lwd = 2, main = "ROC Curves Comparison")
+#lines(knn.roc, col = "red", lwd = 2)
+#legend("bottomright", legend = c("GLMNET", "KNN"), col = c("blue", "red"), lwd = 2)
+
+#cat("GLMNET AUROC\n")
+#auc(glmnet.roc)
+cat("KNN AUROC\n")
+auc(knn1.roc)
+
+# knn_model2
+knn2.predprobs <- predict(knn_model2, dftrain, type = "prob")[,"Yes"]
+knn2.roc <- roc(response=dftrain$fracture, predictor = knn2.predprobs, levels = c("No", "Yes"))
+
+plot(knn2.roc, col = "blue", print.thres="best",lwd = 2, main = "ROC Curves Comparison")
+cat("KNN AUROC\n")
+auc(knn2.roc)
+
+# knn_model3
+knn3.predprobs <- predict(knn_model3, dftrain, type = "prob")[,"Yes"]
+knn3.roc <- roc(response=dftrain$fracture, predictor = knn3.predprobs, levels = c("No", "Yes"))
+
+plot(knn3.roc, col = "blue", print.thres="best",lwd = 2, main = "ROC Curves Comparison")
+cat("KNN AUROC\n")
+auc(knn3.roc)
+
+# knn_model4
+knn4.predprobs <- predict(knn_model4, dftrain, type = "prob")[,"Yes"]
+knn4.roc <- roc(response=dftrain$fracture, predictor = knn4.predprobs, levels = c("No", "Yes"))
+
+plot(knn4.roc, col = "blue", print.thres="best",lwd = 2, main = "ROC Curves Comparison")
+cat("KNN AUROC\n")
+auc(knn4.roc)
 ```
 
 
