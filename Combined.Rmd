@@ -24,6 +24,8 @@ library(pROC)
 ```{r}
 library(aplore3)
 #head(glow_bonemed)
+
+class_colors <- c("#005d8c", "#ec9d3f")
 ```
 
 glow_bonemed variables:
@@ -259,8 +261,10 @@ bone$raterisk_num<-ifelse(bone$raterisk=="Less",0,ifelse(bone$raterisk=="Same",1
 bone$bonemed_num<-ifelse(bone$bonemed=="Yes",1,0)
 bone$bonemed_fu_num<-ifelse(bone$bonemed_fu=="Yes",1,0)
 bone$bonetreat_num<-ifelse(bone$bonetreat=="Yes",1,0)
+bone$frac_num<-ifelse(bone$fracture=="Yes",1,0)
 
 # Split our data into a train and test set
+set.seed(123)
 splitPerc = .7
 trainIndices = sample(1:dim(bone)[1],round(splitPerc * dim(bone)[1]))
 dftrain = bone[trainIndices,]
@@ -303,7 +307,7 @@ knn_model3 <-train(fracture ~ age+weight+height+bmi+
                     trControl=fitControl,
                     tuneLength=15,
                              metric="logLoss")
-classifications = knn(dftrain[,c(5,7,14,19:27)],dftest[,c(5,7,14,19:27)],dftrain$fracture, 
+classifications = knn(dftrain[,c(5:8,14,19:27)],dftest[,c(5:8,14,19:27)],dftrain$fracture, 
                       prob = TRUE, k = 15)
 table(classifications,dftest$fracture)
 confusionMatrix(table(classifications,dftest$fracture), positive = "Yes")
@@ -323,6 +327,7 @@ classifications = knn(dftrain[,c(7,19,21,22,24:27)],dftest[,c(7,19,21,22,24:27)]
 table(classifications,dftest$fracture)
 confusionMatrix(table(classifications,dftest$fracture), positive = "Yes")
 ```
+
 
 ```{r Loop to find best k}
 # Continuous Variables
@@ -412,7 +417,7 @@ knn_model <-train(fracture ~ age+height+fracscore+priorfrac_num+premeno_num+
 knn1.predprobs <- predict(knn_model1, dftrain, type = "prob")[,"Yes"]
 knn1.roc <- roc(response=dftrain$fracture, predictor = knn1.predprobs, levels = c("No", "Yes"))
 
-plot(knn1.roc, col = "blue", print.thres="best",lwd = 2, main = "ROC Curves Comparison")
+plot(knn1.roc, col = "#990943", print.thres="best",lwd = 2, main = "ROC Curves Comparison")
 cat("KNN AUROC\n")
 auc(knn1.roc)
 
@@ -420,7 +425,7 @@ auc(knn1.roc)
 knn2.predprobs <- predict(knn_model2, dftrain, type = "prob")[,"Yes"]
 knn2.roc <- roc(response=dftrain$fracture, predictor = knn2.predprobs, levels = c("No", "Yes"))
 
-plot(knn2.roc, col = "blue", print.thres="best",lwd = 2, main = "ROC Curves Comparison")
+plot(knn2.roc, col = "#08A338", print.thres="best",lwd = 2, main = "ROC Curves Comparison")
 cat("KNN AUROC\n")
 auc(knn2.roc)
 
@@ -428,7 +433,7 @@ auc(knn2.roc)
 knn3.predprobs <- predict(knn_model3, dftrain, type = "prob")[,"Yes"]
 knn3.roc <- roc(response=dftrain$fracture, predictor = knn3.predprobs, levels = c("No", "Yes"))
 
-plot(knn3.roc, col = "blue", print.thres="best",lwd = 2, main = "ROC Curves Comparison")
+plot(knn3.roc, col = "#3908A3", print.thres="best",lwd = 2, main = "ROC Curves Comparison")
 cat("KNN AUROC\n")
 auc(knn3.roc)
 
@@ -436,16 +441,103 @@ auc(knn3.roc)
 knn4.predprobs <- predict(knn_model4, dftrain, type = "prob")[,"Yes"]
 knn4.roc <- roc(response=dftrain$fracture, predictor = knn4.predprobs, levels = c("No", "Yes"))
 
-plot(knn4.roc, col = "blue", print.thres="best",lwd = 2, main = "ROC Curves Comparison")
+plot(knn4.roc, col = "salmon", print.thres="best",lwd = 2, main = "ROC Curves Comparison")
 cat("KNN AUROC\n")
 auc(knn4.roc)
 
 # All 4 Models
-plot(knn1.roc, col = "red", print.thres="best",lwd = 2, main = "ROC Curves Comparison")
-lines(knn2.roc, col = "blue", lwd = 2)
-lines(knn3.roc, col = "green", lwd = 2)
-lines(knn4.roc, col = "purple", lwd = 2)
-legend("bottomright", legend = c("K=3, Cont. Var", "K=15, Cont. Var","K=15, All variables","K=15, Custom Complex Model"), col = c("red", "blue","green","purple"), lwd = 2)
+plot(knn1.roc, col = "#990943", print.thres="best",lwd = 2, main = "ROC Curves Comparison")
+lines(knn2.roc, col = "#08A338", lwd = 2)
+lines(knn3.roc, col = "#3908A3", lwd = 2)
+lines(knn4.roc, col = "salmon", lwd = 2)
+legend("bottomright", legend = c("K=3, Cont. Var", "K=15, Cont. Var","K=15, All variables","K=15, Custom Complex Model"), col = c("#990943", "#08A338","#3908A3","salmon"), lwd = 2)
+```
+
+Inspect Probabilities
+
+Source: https://shihchingfu.github.io/knn-caret-example/#
+```{r}
+class_colors <- c("#005d8c", "#ec9d3f")
+
+# Knn Model 1
+knn1.probabilities <- dftrain %>%
+  mutate(Predicted_prob = knn1.predprobs)
+
+knn1.probabilities %>%
+  ggplot() +
+  aes(x = Predicted_prob, fill = fracture) +
+  geom_histogram(bins = 20) +
+  labs(x = "Probability", y = "Count", title = "Distribution of predicted probabilities" ) +
+  scale_color_manual(values = class_colors) +
+  scale_fill_manual(values = class_colors)
+
+# Knn Model 2
+knn2.probabilities <- dftrain %>%
+  mutate(Predicted_prob = knn2.predprobs)
+
+knn2.probabilities %>%
+  ggplot() +
+  aes(x = Predicted_prob, fill = fracture) +
+  geom_histogram(bins = 20) +
+  labs(x = "Probability", y = "Count", title = "Distribution of predicted probabilities" ) +
+  scale_color_manual(values = class_colors) +
+  scale_fill_manual(values = class_colors)
+
+# Knn Model 3
+knn3.probabilities <- dftrain %>%
+  mutate(Predicted_prob = knn1.predprobs)
+
+knn3.probabilities %>%
+  ggplot() +
+  aes(x = Predicted_prob, fill = fracture) +
+  geom_histogram(bins = 20) +
+  labs(x = "Probability", y = "Count", title = "Distribution of predicted probabilities" ) +
+  scale_color_manual(values = class_colors) +
+  scale_fill_manual(values = class_colors)
+
+# Knn Model 4
+knn4.probabilities <- dftrain %>%
+  mutate(Predicted_prob = knn1.predprobs)
+
+knn4.probabilities %>%
+  ggplot() +
+  aes(x = Predicted_prob, fill = fracture) +
+  geom_histogram(bins = 20) +
+  labs(x = "Probability", y = "Count", title = "Distribution of predicted probabilities" ) +
+  scale_color_manual(values = class_colors) +
+  scale_fill_manual(values = class_colors)
+```
+
+Fine tuning KNN threshholds
+
+Source: https://shihchingfu.github.io/knn-caret-example/#
+```{r}
+# KNN Model 1
+knn1.probabilities <- knn1.probabilities %>%
+  mutate(class = ifelse(Predicted_prob > 0.24, "Yes", "No")) %>%
+  mutate(class = factor(class))
+confusionMatrix(table(knn1.probabilities$class,dftrain$fracture), positive = "Yes")
+
+# KNN Model 2
+knn2.probabilities <- knn2.probabilities %>%
+  mutate(class = ifelse(Predicted_prob > 0.282, "Yes", "No")) %>%
+  mutate(class = factor(class))
+confusionMatrix(table(knn2.probabilities$class,dftrain$fracture), positive = "Yes")
+
+# KNN Model 3
+knn3.probabilities <- knn3.probabilities %>%
+  mutate(class = ifelse(Predicted_prob > 0.209, "Yes", "No")) %>%
+  mutate(class = factor(class))
+confusionMatrix(table(knn3.probabilities$class,dftrain$fracture), positive = "Yes")
+
+# KNN Model 4
+knn4.probabilities <- knn4.probabilities %>%
+  mutate(class = ifelse(Predicted_prob > 0.262, "Yes", "No")) %>%
+  mutate(class = factor(class))
+confusionMatrix(table(knn4.probabilities$class,dftrain$fracture), positive = "Yes")
+
+
+
 ```
 
 
