@@ -389,6 +389,10 @@ confusionMatrix(table(classifications,bone$fracture), positive = "Yes")
 classifications = knn.cv(bone[,c(5:8,14,19:27)],bone$fracture,prob = TRUE, k = 15)
 confusionMatrix(table(classifications,bone$fracture), positive = "Yes")
 
+#Internal CV for custom model
+classifications = knn.cv(bone[,c(5,7,19,21:22,24:27)],bone$fracture,prob = TRUE, k = 15)
+confusionMatrix(table(classifications,bone$fracture), positive = "Yes")
+
 ```
 
 ```{r}
@@ -409,11 +413,6 @@ knn1.predprobs <- predict(knn_model1, dftrain, type = "prob")[,"Yes"]
 knn1.roc <- roc(response=dftrain$fracture, predictor = knn1.predprobs, levels = c("No", "Yes"))
 
 plot(knn1.roc, col = "blue", print.thres="best",lwd = 2, main = "ROC Curves Comparison")
-#lines(knn.roc, col = "red", lwd = 2)
-#legend("bottomright", legend = c("GLMNET", "KNN"), col = c("blue", "red"), lwd = 2)
-
-#cat("GLMNET AUROC\n")
-#auc(glmnet.roc)
 cat("KNN AUROC\n")
 auc(knn1.roc)
 
@@ -440,6 +439,13 @@ knn4.roc <- roc(response=dftrain$fracture, predictor = knn4.predprobs, levels = 
 plot(knn4.roc, col = "blue", print.thres="best",lwd = 2, main = "ROC Curves Comparison")
 cat("KNN AUROC\n")
 auc(knn4.roc)
+
+# All 4 Models
+plot(knn1.roc, col = "red", print.thres="best",lwd = 2, main = "ROC Curves Comparison")
+lines(knn2.roc, col = "blue", lwd = 2)
+lines(knn3.roc, col = "green", lwd = 2)
+lines(knn4.roc, col = "purple", lwd = 2)
+legend("bottomright", legend = c("K=3, Cont. Var", "K=15, Cont. Var","K=15, All variables","K=15, Custom Complex Model"), col = c("red", "blue","green","purple"), lwd = 2)
 ```
 
 
