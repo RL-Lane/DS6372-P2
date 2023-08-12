@@ -1,0 +1,399 @@
+---
+title: "Analysis of Osteoperosis and Bone Fractures"
+author: 'MSDS 6372: Anish Bhandari, Rob Lane, & Alex Thibeaux'
+date: "`r Sys.Date()`"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = F)
+```
+
+```{r libraries, echo=F, message=F}
+library(aplore3)
+library(GGally)
+library(dplyr)
+library(corrplot)
+library(DataExplorer)
+library(gridExtra)
+library(aplore3)
+library(GGally)
+library(dplyr)
+library(corrplot)
+library(DataExplorer)
+library(gridExtra)
+
+
+```
+
+# Introduction
+
+We've picked the "glow_bonemed" dataset from the R package "aplore3," which contains information on 500 cases in 18 columns. Among these, 3 columns help identify cases, 14 offer explanatory information, and 1 indicates whether a fracture occurred. Our main goal is to predict whether women with osteoporosis will have any bone fractures in the first year after joining the study.
+
+We'll begin by conducting Exploratory Data Analysis (EDA) and constructing a logistic regression model primarily for interpretation.Next, we'll create 3 advanced models to predict fractures, and finally, we'll compare these models and provide a brief summary of our findings.
+
+### glow_bonemed variables:
+
+| **Variable** | **Type**     | **Description**                                                                                                                                     |
+|--------------|--------------|-----------------------------------------------------------------------------------------------------------------------------------------------------|
+| bonemed      | 2-factor     | Bone medications at enrollment (1: No, 2: Yes)                                                                                                      |
+| bonemed_fu   | 2-factor     | Bone medications at follow-up (1: No, 2: Yes)                                                                                                       |
+| bonetreat    | 2-factor     | Bone medications both at enrollment and follow-up (1: No, 2: Yes)                                                                                   |
+| sub_id       | int          | Identification Code (1 - n)                                                                                                                         |
+| site_id      | int          | Study Site (1 - 6)                                                                                                                                  |
+| phy_id       | int          | Physician ID code (128 unique codes)                                                                                                                |
+| priorfrac    | 2-factor     | History of Prior Fracture (1: No, 2: Yes)                                                                                                           |
+| age          | int          | Age at Enrollment (Years)                                                                                                                           |
+| weight       | num          | Weight at enrollment (Kilograms)                                                                                                                    |
+| height       | int          | Height at enrollment (Centimeters)                                                                                                                  |
+| bmi          | num          | Body Mass Index ($\frac{kg}{m^2}$)                                                                                                                  |
+| premeno      | 2-factor     | Menopause before age 45 (1: No, 2: Yes)                                                                                                             |
+| momfrac      | 2-factor     | Mother had hip fracture (1: No, 2: Yes)                                                                                                             |
+| armassist    | 2-factor     | Arms are needed to stand from a chair (1: No, 2: Yes)                                                                                               |
+| smoke        | 2-factor     | Former or current smoker (1: No, 2: Yes)                                                                                                            |
+| raterisk     | 3-factor     | Self-reported risk of fracture (1: Less than others of the same age, <br>2: Same as others of the same age, 3: Greater than others of the same age) |
+| fracscore    | int          | Fracture Risk Score (Composite Risk Score)                                                                                                          |
+| **fracture** | **2-factor** | **Any fracture in first year (1: No, 2: Yes)**                                                                                                      |
+
+# Ojective 1  
+## 1A: EDA
+
+```{r EDA, message=FALSE}
+
+
+
+
+bone <- glow_bonemed
+summary(bone)
+
+
+class_colors <- c("#005d8c", "#ec9d3f")
+
+
+# Missing Values plot
+plot_missing(bone, title = "Missing Values")
+
+# Bar Plot of categorical varibles
+plot_bar(bone, ggtheme = theme_linedraw(), title = "Bar Plot of Categorical Variables", nrow = 4, ncol = 4)
+
+## Bar Plot of categorical varibles by fracture
+
+
+
+# Converted fracture to numeric for the correlation 
+bone1<- bone
+bone1$fracture.num = as.numeric(bone1$fracture)
+
+# Select numeric variables for the pairs plot
+numeric_vars <- c("age", "weight", "height", "bmi", "fracscore")
+
+# Create a pairs plot with color based on fracture variable
+ggpairs(data = bone, columns = numeric_vars, title = "Pairs Plot of Numeric Variable with Fracture",
+        aes(color = fracture, fill = fracture)) +
+  scale_color_manual(values = class_colors) +
+  scale_fill_manual(values = class_colors)
+
+
+# validate the correlation with correlation plot      
+corr_matrix <- cor(bone1[, c("age", "weight", "height", "bmi", "fracscore", "fracture.num")])
+corrplot(corr_matrix, method = "color")
+corr_matrix
+
+```
+
+We observe mild correlations between height and weight, fracture and age, and fracture and fracscore. Additionally, we identify a high correlation between weight and BMI, as well as a very high correlation between fracscore and age.
+
+
+
+
+```{r, echo=F, fig.width=7.5, fig.height=7.5}
+library(graphics)
+bone <- glow_bonemed
+#Survived = 1, Perished = 0.  Therefore, #005d8c means perished, #ec9d3f means survived.
+class_colors <- c("#005d8c", "#ec9d3f")
+
+#Excluding IDs because they don't describe the problem.
+exclude_vars <- c("sub_id", "site_id", "phy_id")
+include_cols <- setdiff(names(bone), exclude_vars)
+
+pairs(bone[, include_cols],
+      col = class_colors[ifelse(bone$fracture=="Yes",2,1)])
+
+```
+
+There are a few cases of multicollinearity between:  
+fracscore : age  
+bmi : weight  
+site_id : phy_id  
+
+One thing of note with the above scatterplot is that there seems to be a low level of separation on the output variable (fracture).
+
+```{r T_Tests}
+tstt <- function(var1, df) {
+  
+  return(t.test(var1~fracture, data = df,conf.level = .95,var.equal=FALSE)$p.value)
+}
+cat("p-values for selected variables (t-test):\n")
+cat("site_id  : ", tstt(bone$site_id, bone),"\n")
+
+cat("phy_id   : ", tstt(bone$phy_id, bone),"\n")
+cat("age      : ", tstt(bone$age, bone),"\n")
+cat("weight   : ", tstt(bone$weight, bone),"\n")
+cat("height   : ", tstt(bone$height, bone),"\n")
+cat("bmi      : ", tstt(bone$bmi, bone),"\n")
+cat("fracscore: ", tstt(bone$fracscore, bone),"\n")
+
+```
+We believe that the ID variables don't have a meaningful affect on the output variable.  Of the above tested variables, only age, height, and fracscore seem to have an impact on the output variable (without checking for the effect of other variables simultaneously).
+
+```{r proportions_list, message=F, fig.width = 7, fig.height = 7}
+library(ggplot2)
+library(dplyr)
+library(patchwork)
+
+
+# Step 1: Create a list of factor variables
+factor_list <- c("bonemed", "bonemed_fu", "bonetreat", "priorfrac", "premeno", "momfrac", "armassist", "smoke", "raterisk")
+
+# Create an empty list to store the plots
+plots_list <- list()
+
+# Step 2: Create a loop to generate plots for each variable and store them in the list
+for (variable in factor_list) {
+  g <- bone %>%
+    group_by(fracture, !!as.name(variable)) %>%
+    summarise(cnt = n()) %>%
+    mutate(perc = round(cnt / sum(cnt), 4))
+  
+  class_colors <- c("No" = "#005d8c", "Yes" = "#ec9d3f")
+  
+  plot <- ggplot(g, aes(x = !!as.name(variable), y = perc, colour = fracture)) +
+    geom_bar(aes(fill = fracture), stat = "identity", position = "dodge") +
+    scale_colour_manual(values = class_colors) +
+    scale_fill_manual(values = class_colors) +
+    ylab("Proportion") +
+    labs(title = paste("Variable:", variable)) +# Add a title to each plot
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +# Rotate x-axis labels by 45 degrees
+    guides(fill=F, color=F) # Hide individual legends for each plot since they're all the same.
+  
+  # Store the plot in the list
+  plots_list[[variable]] <- plot
+}
+
+# Combine the plots into a 3x3 grid using patchwork
+grid_plot <- wrap_plots(plotlist = plots_list, ncol = 3)
+
+# Create a separate plot for the legend
+legend_plot <- ggplot(bone, aes(x = "", y = "", fill = fracture)) +
+  geom_bar(stat = "identity", position = "dodge", width=.5, just=.1) +
+  scale_fill_manual(values = class_colors) +
+  guides(fill = guide_legend(title = "Fracture", keywidth = 0.7, keyheight = 0.5, size = 2)) + # Customize the legend title, size, and key size
+  theme_void() + # Remove unnecessary elements from the plot, leaving only the legend
+  theme(legend.text = element_text(size = 8)) # Adjust the size of the legend text
+
+# Combine the grid of plots and the legend plot using patchwork
+final_plot <- grid_plot + legend_plot
+
+# Display the final combined plot
+print(final_plot)
+```
+
+Above are all of our selected categorical variables.  One thing we can see is that there are relatively few examples in our sample who smoke, are pre-menopause, or have a mother who had a fracture.  As shown elsewhere, most of our variables have rather weak affects alone on the outcome of having a fracture.
+
+```{r}
+## I don't know how to change the color to class_colors on this one. We can use the one that Rob did with ggplot and was not stacked.
+plot_bar(bone,by = "fracture", ggtheme = theme_linedraw(), title = "Bar Plot of Categorical Variables by Fracture", nrow = 4, ncol = 4)
+```
+
+One thing we can see in the above chart is that the proportional differences of fracture status are not very different for some of the categorical variables.  The largest differences we can see here are found within *priorfrac*, *bonemed_fu*, *raterisk*, and *bonemed*.
+
+```{r loess_list, fig.width=6, fig.height=4, message=F}
+  #class_colors <- c("No" = "#005d8c", "Yes" = "#ec9d3f")
+# library(ggplot2)
+# library(dplyr)
+# library(patchwork)
+
+# Step 1: Create a list of factor variables
+numeric_list <- c("age", "weight", "height", "bmi", "fracscore")
+
+# Create an empty list to store the plots
+plots_list <- list()
+
+for (variable in numeric_list) 
+{
+  plot <- ggplot(bone, aes(x = !!as.name(variable), y = ifelse(fracture == "Yes",1,0))) +
+            geom_point() +
+            geom_smooth(method = "loess", size = 1, span = 0.75) +
+            ylim(-0.2, 1.2) +
+            ylab("Fracture = 1")
+  plots_list[[variable]] <- plot
+  
+
+}
+
+# plots_list[["legend"]] <- ggplot(bone, aes(x = "", y = "", fill = fracture)) +
+#   geom_bar(stat = "identity", position = "dodge", width=.5, just=.1) +
+#   scale_fill_manual(values = class_colors) +
+#   guides(fill = guide_legend(title = "Fracture", keywidth = 0.7, keyheight = 0.5, size = 2)) + # Customize the legend title, size, and key size
+#   theme_void() + # Remove unnecessary elements from the plot, leaving only the legend
+#   theme(legend.text = element_text(size = 8)) # Adjust the size of the legend text
+
+grid_plot <- wrap_plots(plotlist = plots_list, ncol = 3)
+
+print(grid_plot)
+```
+
+There seems to be a slight positive correlation between age and likelihood of fracture, and between fracscore and likelihood of fracture.  Both of these follow reasonable expectations when 
+
+```{r loess_interactions, message=F, eval=F}
+color_scale <- c("red","blue","black")
+
+
+i=0
+plots_list <- list()
+
+for (factor in factor_list){
+  for (numeric in numeric_list) {
+    i <- i +1
+    plot <- ggplot(bone, aes(x = !!as.name(numeric), y = ifelse(fracture == "Yes",1,0), colour=factor(!!as.name(factor)))) +
+              geom_point() +
+              geom_smooth(method = "loess", size = 1, span = 1) +
+              ylim(-0.2, 1.2) +
+              ylab("Fracture = 1") +
+              scale_colour_manual(values = color_scale) +
+              labs(title=paste0("Interaction #",i))
+    
+    print(plot)
+    #plots_list[[variable]] <- plot
+    #plots_list[[paste(factor, numeric, sep = "_")]] <- plot
+  }
+}
+```
+
+```{r loess_interactions_2, message=F, fig.width=7, fig.height=9}
+# library(ggplot2)
+# library(dplyr)
+# library(patchwork)
+
+# This is not intended to be the final list of interactions, just those that seemed worthy of further exploration from above.
+# interactions <-c(
+#   # factor, numeric
+#   c("bonemed",    "weight"), #2
+#   c("bonemed",    "bmi"),    #4
+#   c("bonemed_fu", "weight"), #7
+#   c("bonemed_fu", "height"), #8
+#   c("bonemed_fu", "bmi"),    #9
+#   c("bonetreat",  "weight"),#12
+#   c("bonetreat",  "bmi"),   #14
+#   c("priorfrac",  "age"),   #16
+#   c("priorfrac",  "weight"),#17
+#   c("priorfrac",  "bmi"),   #19
+#   c("momfrac",    "age"),   #26
+#   c("momfrac",    "weight"),#27
+#   c("momfrac",    "bmi"),   #29
+#   c("smoke",      "height"),#38
+#   c("raterisk",   "weight") #42
+# )
+
+inter_nums <- c(2, 4, 7, 8, 9, 12, 14, 16, 17, 19, 26, 27, 29, 38, 42)
+
+color_scale <- c("#990943", "#08A338", "#3908A3")
+
+i <- 0
+plots_list <- list()
+for (factor in factor_list) {
+  for (numeric in numeric_list) {
+    i <- i + 1
+    if (i %in% inter_nums) {
+      # Remove NAs before creating the plot
+      bone_plot <- na.omit(bone)
+      
+      plot <- ggplot(bone_plot, aes(x = !!as.name(numeric), y = ifelse(fracture == "Yes", 1, 0), colour = factor(!!as.name(factor)))) +
+        geom_point() +
+        geom_smooth(method = "loess", size = 1, span = 1) +
+        ylim(-0.2, 1.2) +
+        ylab("Fracture = 1") + 
+        xlab(paste(numeric," vs. ", factor,".fac",sep="")) +
+        scale_colour_manual(values = color_scale) +
+        guides(fill=F, color=F) # Hide individual legends for each plot 
+
+      
+      plots_list[[paste(factor, numeric, sep = "_")]] <- plot
+    }
+  }
+}
+
+# Combine the plots into a grid using patchwork
+grid_plot <- wrap_plots(plotlist = plots_list, ncol = 3)
+
+legend_plot <- ggplot(bone, aes(x = "", y = "", fill = smoke)) +
+  geom_bar(stat = "identity", position = "dodge", width=.5, just=.1) +
+  scale_fill_manual(values = color_scale) +
+  guides(fill = guide_legend(title = "Factor", keywidth = 0.7, keyheight = 0.5, size = 2)) + # Customize the legend title, size, and key size
+  theme_void() + # Remove unnecessary elements from the plot, leaving only the legend
+  theme(legend.text = element_text(size = 8)) # Adjust the size of the legend text
+
+legend_plot2 <- ggplot(bone, aes(x = "", y = "", fill = raterisk)) +
+  geom_bar(stat = "identity", position = "dodge", width=.5, just=.1) +
+  scale_fill_manual(values = color_scale) +
+  guides(fill = guide_legend(title = "raterisk", keywidth = 0.7, keyheight = 0.5, size = 2)) + # Customize the legend title, size, and key size
+  theme_void() + # Remove unnecessary elements from the plot, leaving only the legend
+  theme(legend.text = element_text(size = 8)) # Adjust the size of the legend text
+
+# Combine the grid of plots and the legend plot using patchwork
+final_plot <- grid_plot + legend_plot + legend_plot2
+
+# Display the final combined plot
+print(final_plot)
+#print(grid_plot)
+
+
+#Note: when momfrac has an interaction, the numeric may have a poly(2) term
+```
+
+This a group of loess curve plots which are set up to explore interactions between selected pairs of factor variables (noted on the right of each x-axis with a suffix of ".fac") and a numeric variable (noted on the left of each x-axis).  The reason these were selected is because these appear to show a difference in the presented trend (frequency of fractures) for the numeric variable when they are separated by a factor.  
+
+For the top row, middle curve, when the factor (bonemed) is yes (green), there is a strong positive response as the numeric variable (bmi) increases.  There does not seem to be a strong response when bonemed is no (mauve).  For this reason, we believe that this variable exhibits enough evidence of interaction to explore its effect in a complex model.  Several of the interactions with momfrac seem to show a further posibility of a polynomial interaction.  These will be explored later in this paper.
+
+## Multiple Logistic Regression (simple model, no interaction: Alex)
+
+
+•	Perform your multiple logistic regression analysis and provide interpretation of the regression coefficients including hypothesis testing, and confidence intervals. For simplicity sake, you do not need to include interactions with this model. Comment on the practical vs statistical significance of the deemed important factors.  
+Logistical Considerations.
+
+•	Just like project 1, this does not have to be extremely fancy in terms of the model building approach, let EDA, feature selection, and/or overall intuition guide you.  Keep in mind previous project feedback and note the difference between a model that is interpretable versus a model that is complex. (A model with a lot of predictors can still be interpretable)
+
+•	Interactions models shouldn’t be used here as you should display your ability to interpret the regression coefficients.  Effects plots may be used in addition too but not at the exclusions of coefficient interpretation. 
+
+
+
+
+
+
+# Objective 2:  With a simple logistic regression model as a baseline, perform additional competing models to improve on prediction performance metrics.  
+
+
+
+•	In this section you will build 3 additional classification models to compare to your model in objective 1.  The goal of this objective is to build a model where prediction performance is prioritized.  One model should be an attempt at a complex logistic regression model including interaction terms or polynomial terms.  One model should be an LDA or QDA.  And the final model should be a nonparametric model such as knn, random forest, classification tree, etc.  
+
+•	There should be a quick discussion on the reasoning for your complexity you tried/used in the complex logistic model.  Perhaps another slide on a deeper dive of EDA or discussion on logistical points based on your own knowledge of the variables.
+
+•	For each model, 6 metrics should be used and reported on the validation set.  The Sensitivity, Specificity, Prevalence, PPV, NPV, and AUROC.  It should be well communicated on what metrics you feel are more important for comparing your models and describing their performance.  Summarize the overall findings and your recommendations for what model you should go with for making future predictions.  Make sure to communicate what threshold you are using that derives many of the metrics.  Excellent projects will effectively communicate why some error metrics may be more important optimize given the practical use cases of the data set used. 
+
+•	Feature selection should be implemented in the logistic model here unless it was done in objective 1 already.
+
+## Complex Model (includes feature selection: Rob)
+
+## LDA / QDA (Anish)
+
+## nonparametric (knn: Alex)
+
+# Model Scores
+
+# Conclusion
+
+## Logistical Considerations.
+
+•	Don’t forget PCA can be helpful in various ways throughout your analysis as well as other unsupervised tools such as heatmaps and cluster analysis from Unit 13 and 14.  Its not necessarily expected, but if your EDA is light, think about using these tools to get practice even if its not necessarily practical for your analysis.
+
+•	If using feature selection for objective one, if you are using lasso/glmnet, create your final model using a glm call so that you can obtain all the necessary statistical information and tests.  For objective two, do not forget ROC curves can provide comparison of the models in addition to the error metric table.
