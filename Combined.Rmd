@@ -1,0 +1,554 @@
+---
+title: "Project 2 EDA"
+author: 'MSDS 6372: Rob Lane'
+date: "`r Sys.Date()`"
+output:
+  html_document:
+    df_print: paged
+---
+
+```{r setup, include=TRUE}
+knitr::opts_chunk$set(echo = T)
+```
+# Libraries
+```{r}
+# Libraries for KNN
+library(class)
+library(e1071)
+library(caret)
+
+# Library for ROC
+library(pROC)
+```
+# Data
+```{r}
+library(aplore3)
+#head(glow_bonemed)
+
+class_colors <- c("#005d8c", "#ec9d3f")
+```
+
+glow_bonemed variables:
+
+| **Variable** | **Type**     | **Description**                                                                                                                                     |
+|--------------|--------------|-----------------------------------------------------------------------------------------------------------------------------------------------------|
+| bonemed      | 2-factor     | Bone medications at enrollment (1: No, 2: Yes)                                                                                                      |
+| bonemed_fu   | 2-factor     | Bone medications at follow-up (1: No, 2: Yes)                                                                                                       |
+| bonetreat    | 2-factor     | Bone medications both at enrollment and follow-up (1: No, 2: Yes)                                                                                   |
+| sub_id       | int          | Identification Code (1 - n)                                                                                                                         |
+| site_id      | int          | Study Site (1 - 6)                                                                                                                                  |
+| phy_id       | int          | Physician ID code (128 unique codes)                                                                                                                |
+| priorfrac    | 2-factor     | History of Prior Fracture (1: No, 2: Yes)                                                                                                           |
+| age          | int          | Age at Enrollment (Years)                                                                                                                           |
+| weight       | num          | Weight at enrollment (Kilograms)                                                                                                                    |
+| height       | int          | Height at enrollment (Centimeters)                                                                                                                  |
+| bmi          | num          | Body Mass Index ($\frac{kg}{m^2}$)                                                                                                                  |
+| premeno      | 2-factor     | Menopause before age 45 (1: No, 2: Yes)                                                                                                             |
+| momfrac      | 2-factor     | Mother had hip fracture (1: No, 2: Yes)                                                                                                             |
+| armassist    | 2-factor     | Arms are needed to stand from a chair (1: No, 2: Yes)                                                                                               |
+| smoke        | 2-factor     | Former or current smoker (1: No, 2: Yes)                                                                                                            |
+| raterisk     | 3-factor     | Self-reported risk of fracture (1: Less than others of the same age, <br>2: Same as others of the same age, 3: Greater than others of the same age) |
+| fracscore    | int          | Fracture Risk Score (Composite Risk Score)                                                                                                          |
+| **fracture** | **2-factor** | **Any fracture in first year (1: No, 2: Yes)**                                                                                                      |
+
+```{r, echo=F, fig.width=7.5, fig.height=7.5}
+library(graphics)
+bone <- glow_bonemed
+#Survived = 1, Perished = 0.  Therefore, salmon means perished, turquoise means survived.
+class_colors <- c("salmon", "turquoise")
+
+#Excluding IDs because they don't describe the problem.
+exclude_vars <- c("sub_id", "site_id", "phy_id")
+include_cols <- setdiff(names(bone), exclude_vars)
+
+pairs(bone[, include_cols],
+      col = class_colors[ifelse(bone$fracture=="Yes",2,1)])
+
+```
+
+Note: Turqoise indicates a bone fracture within the first year occured.
+
+**Multicollinearity Found:**  
+fracscore : age  
+bmi : weight  
+site_id : phy_id  *Because the IDs don't really tell much without factoring, and because there are a high number of factors within this class, these last two should be omitted from the model.  The code above reflects this change.*
+
+
+```{r proportions_list, message=F, fig.width = 7, fig.height = 7}
+library(ggplot2)
+library(dplyr)
+library(patchwork)
+
+
+# Step 1: Create a list of factor variables
+factor_list <- c("bonemed", "bonemed_fu", "bonetreat", "priorfrac", "premeno", "momfrac", "armassist", "smoke", "raterisk")
+
+# Create an empty list to store the plots
+plots_list <- list()
+
+# Step 2: Create a loop to generate plots for each variable and store them in the list
+for (variable in factor_list) {
+  g <- bone %>%
+    group_by(fracture, !!as.name(variable)) %>%
+    summarise(cnt = n()) %>%
+    mutate(perc = round(cnt / sum(cnt), 4))
+  
+  class_colors <- c("No" = "salmon", "Yes" = "turquoise")
+  
+  plot <- ggplot(g, aes(x = !!as.name(variable), y = perc, colour = fracture)) +
+    geom_bar(aes(fill = fracture), stat = "identity", position = "dodge") +
+    scale_colour_manual(values = class_colors) +
+    scale_fill_manual(values = class_colors) +
+    ylab("Proportion") +
+    labs(title = paste("Variable:", variable)) +# Add a title to each plot
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +# Rotate x-axis labels by 45 degrees
+    guides(fill=F, color=F) # Hide individual legends for each plot since they're all the same.
+  
+  # Store the plot in the list
+  plots_list[[variable]] <- plot
+}
+
+# Combine the plots into a 3x3 grid using patchwork
+grid_plot <- wrap_plots(plotlist = plots_list, ncol = 3)
+
+# Create a separate plot for the legend
+legend_plot <- ggplot(bone, aes(x = "", y = "", fill = fracture)) +
+  geom_bar(stat = "identity", position = "dodge", width=.5, just=.1) +
+  scale_fill_manual(values = class_colors) +
+  guides(fill = guide_legend(title = "Fracture", keywidth = 0.7, keyheight = 0.5, size = 2)) + # Customize the legend title, size, and key size
+  theme_void() + # Remove unnecessary elements from the plot, leaving only the legend
+  theme(legend.text = element_text(size = 8)) # Adjust the size of the legend text
+
+# Combine the grid of plots and the legend plot using patchwork
+final_plot <- grid_plot + legend_plot
+
+# Display the final combined plot
+print(final_plot)
+```
+
+```{r loess_list, fig.width=6, fig.height=4, message=F}
+  #class_colors <- c("No" = "salmon", "Yes" = "turquoise")
+
+# Step 1: Create a list of factor variables
+numeric_list <- c("age", "weight", "height", "bmi", "fracscore")
+
+# Create an empty list to store the plots
+plots_list <- list()
+
+for (variable in numeric_list) 
+{
+  plot <- ggplot(bone, aes(x = !!as.name(variable), y = ifelse(fracture == "Yes",1,0))) +
+            geom_point() +
+            geom_smooth(method = "loess", size = 1, span = 0.75) +
+            ylim(-0.2, 1.2) +
+            ylab("Fracture = 1")
+  plots_list[[variable]] <- plot
+  
+
+}
+
+# plots_list[["legend"]] <- ggplot(bone, aes(x = "", y = "", fill = fracture)) +
+#   geom_bar(stat = "identity", position = "dodge", width=.5, just=.1) +
+#   scale_fill_manual(values = class_colors) +
+#   guides(fill = guide_legend(title = "Fracture", keywidth = 0.7, keyheight = 0.5, size = 2)) + # Customize the legend title, size, and key size
+#   theme_void() + # Remove unnecessary elements from the plot, leaving only the legend
+#   theme(legend.text = element_text(size = 8)) # Adjust the size of the legend text
+
+grid_plot <- wrap_plots(plotlist = plots_list, ncol = 3)
+
+print(grid_plot)
+```
+
+```{r loess_interactions, message=F, eval=F}
+color_scale <- c("red","blue","black")
+
+
+i=0
+plots_list <- list()
+
+for (factor in factor_list){
+  for (numeric in numeric_list) {
+    i <- i +1
+    plot <- ggplot(bone, aes(x = !!as.name(numeric), y = ifelse(fracture == "Yes",1,0), colour=factor(!!as.name(factor)))) +
+              geom_point() +
+              geom_smooth(method = "loess", size = 1, span = 1) +
+              ylim(-0.2, 1.2) +
+              ylab("Fracture = 1") +
+              scale_colour_manual(values = color_scale) +
+              labs(title=paste0("Interaction #",i))
+    
+    print(plot)
+    #plots_list[[variable]] <- plot
+    #plots_list[[paste(factor, numeric, sep = "_")]] <- plot
+  }
+}
+
+# Combine the plots into a grid using patchwork
+#grid_plot <- wrap_plots(plotlist = plots_list, ncol = 3)
+
+#print(grid_plot)
+```
+
+```{r loess_interactions_2, message=F, fig.width=7, fig.height=9}
+# library(ggplot2)
+# library(dplyr)
+# library(patchwork)
+
+# This is not intended to be the final list of interactions, just those that seemed worthy of further exploration from above.
+interactions <-c(
+  # factor, numeric
+  c("bonemed",    "weight"), #2
+  c("bonemed",    "bmi"),    #4
+  c("bonemed_fu", "weight"), #7
+  c("bonemed_fu", "height"), #8
+  c("bonemed_fu", "bmi"),    #9
+  c("bonetreat",  "weight"),#12
+  c("bonetreat",  "bmi"),   #14
+  c("priorfrac",  "weight"),#17
+  c("priorfrac",  "bmi"),   #19
+  c("momfrac",    "age"),   #26
+  c("momfrac",    "weight"),#27
+  c("momfrac",    "bmi"),   #29
+  c("smoke",      "height"),#38
+  c("raterisk",   "weight") #42
+)
+
+inter_nums <- c(2, 4, 7, 8, 9, 12, 14, 17, 19, 26, 27, 29, 38, 42)
+
+color_scale <- c("red", "blue", "black")
+
+i <- 0
+plots_list <- list()
+for (factor in factor_list) {
+  for (numeric in numeric_list) {
+    i <- i + 1
+    if (i %in% inter_nums) {
+      # Remove NAs before creating the plot
+      bone_plot <- na.omit(bone)
+      
+      plot <- ggplot(bone_plot, aes(x = !!as.name(numeric), y = ifelse(fracture == "Yes", 1, 0), colour = factor(!!as.name(factor)))) +
+        geom_point() +
+        geom_smooth(method = "loess", size = 1, span = 1) +
+        ylim(-0.2, 1.2) +
+        ylab("Fracture = 1") + 
+        xlab(paste(numeric," vs. ", factor,".fac",sep="")) +
+        scale_colour_manual(values = color_scale) +
+        guides(fill=F, color=F) # Hide individual legends for each plot 
+
+      
+      plots_list[[paste(factor, numeric, sep = "_")]] <- plot
+    }
+  }
+}
+
+# Combine the plots into a grid using patchwork
+grid_plot <- wrap_plots(plotlist = plots_list, ncol = 3)
+
+print(grid_plot)
+
+
+#Note: when momfrac has an interaction, the numeric may have a poly(2) term
+```
+# KNN
+```{r KNN prediction models}
+# Set factors as binaries
+bone$priorfrac_num<-ifelse(bone$priorfrac=="Yes",1,0)
+bone$premeno_num<-ifelse(bone$premeno=="Yes",1,0)
+bone$momfrac_num<-ifelse(bone$momfrac=="Yes",1,0)
+bone$armassist_num<-ifelse(bone$armassist=="Yes",1,0)
+bone$smoke_num<-ifelse(bone$smoke=="Yes",1,0)
+bone$raterisk_num<-ifelse(bone$raterisk=="Less",0,ifelse(bone$raterisk=="Same",1,2))
+bone$bonemed_num<-ifelse(bone$bonemed=="Yes",1,0)
+bone$bonemed_fu_num<-ifelse(bone$bonemed_fu=="Yes",1,0)
+bone$bonetreat_num<-ifelse(bone$bonetreat=="Yes",1,0)
+bone$frac_num<-ifelse(bone$fracture=="Yes",1,0)
+
+# Split our data into a train and test set
+set.seed(123)
+splitPerc = .7
+trainIndices = sample(1:dim(bone)[1],round(splitPerc * dim(bone)[1]))
+dftrain = bone[trainIndices,]
+dftest = bone[-trainIndices,]
+
+# k = 3 for 3 Continuous Variables with Strong Evidence via Ttest
+fitControl<-trainControl(method="repeatedcv",number=10,repeats=1,classProbs=TRUE, summaryFunction=mnLogLoss)
+knn_model1 <-train(fracture ~ age+height+fracscore,
+                           data=dftrain,
+                    method="knn",
+                    trControl=fitControl,
+                    tuneLength=3,
+                             metric="logLoss")
+classifications = knn(dftrain[,c(5,7,14)],dftest[,c(5,7,14)],dftrain$fracture, 
+                      prob = TRUE, k = 3)
+table(classifications,dftest$fracture)
+confusionMatrix(table(classifications,dftest$fracture), positive = "Yes")
+
+# k = 15 for 3 Continuous Variables with Strong Evidence via Ttest
+fitControl<-trainControl(method="repeatedcv",number=10,repeats=1,classProbs=TRUE, summaryFunction=mnLogLoss)
+knn_model2 <-train(fracture ~ age+height+fracscore,
+                           data=dftrain,
+                    method="knn",
+                    trControl=fitControl,
+                    tuneLength=15,
+                             metric="logLoss")
+classifications = knn(dftrain[,c(5,7,14)],dftest[,c(5,7,14)],dftrain$fracture, 
+                      prob = TRUE, k = 15)
+table(classifications,dftest$fracture)
+confusionMatrix(table(classifications,dftest$fracture), positive = "Yes")
+
+# k = 15 for all variables
+fitControl<-trainControl(method="repeatedcv",number=10,repeats=1,classProbs=TRUE, summaryFunction=mnLogLoss)
+knn_model3 <-train(fracture ~ age+weight+height+bmi+
+                     fracscore+priorfrac_num+premeno_num+
+                     momfrac_num+armassist_num+smoke_num+bonemed_num+
+                     bonemed_fu_num+bonetreat_num+raterisk_num,
+                           data=dftrain,
+                    method="knn",
+                    trControl=fitControl,
+                    tuneLength=15,
+                             metric="logLoss")
+classifications = knn(dftrain[,c(5:8,14,19:27)],dftest[,c(5:8,14,19:27)],dftrain$fracture, 
+                      prob = TRUE, k = 15)
+table(classifications,dftest$fracture)
+confusionMatrix(table(classifications,dftest$fracture), positive = "Yes")
+
+# k = 15 for Custom Complex Model
+fitControl<-trainControl(method="repeatedcv",number=10,repeats=1,classProbs=TRUE, summaryFunction=mnLogLoss)
+knn_model4 <-train(fracture ~ age+height+priorfrac_num+
+                     momfrac_num+armassist_num+bonemed_num+
+                     bonemed_fu_num+bonetreat_num+raterisk_num,
+                           data=dftrain,
+                    method="knn",
+                    trControl=fitControl,
+                    tuneLength=15,
+                             metric="logLoss")
+classifications = knn(dftrain[,c(7,19,21,22,24:27)],dftest[,c(7,19,21,22,24:27)],dftrain$fracture, 
+                      prob = TRUE, k = 15)
+table(classifications,dftest$fracture)
+confusionMatrix(table(classifications,dftest$fracture), positive = "Yes")
+```
+
+
+```{r Loop to find best k}
+# Continuous Variables
+# Loop for many k and the average of many training / test partition
+iterations = 500
+numks = 30
+
+masterAcc = matrix(nrow = iterations, ncol = numks)
+  
+for(j in 1:iterations)
+{
+accs = data.frame(accuracy = numeric(30), k = numeric(30))
+trainIndices = sample(1:dim(bone)[1],round(splitPerc * dim(bone)[1]))
+train = bone[trainIndices,]
+test = bone[-trainIndices,]
+for(i in 1:numks)
+{
+  classifications = knn(train[,c(5,7,14)],test[,c(5,7,14)],train$fracture, prob = TRUE, k = i)
+  table(classifications,test$fracture)
+  CM = confusionMatrix(table(classifications,test$fracture), positive = "Yes")
+  masterAcc[j,i] = CM$overall[1]
+}
+
+}
+
+MeanAcc = colMeans(masterAcc)
+
+plot(seq(1,numks,1),MeanAcc, type = "l")
+
+# Continuous & Categorical Variables
+# Loop for many k and the average of many training / test partition
+iterations = 500
+numks = 30
+
+masterAcc = matrix(nrow = iterations, ncol = numks)
+  
+for(j in 1:iterations)
+{
+accs = data.frame(accuracy = numeric(30), k = numeric(30))
+trainIndices = sample(1:dim(bone)[1],round(splitPerc * dim(bone)[1]))
+train = bone[trainIndices,]
+test = bone[-trainIndices,]
+for(i in 1:numks)
+{
+  classifications = knn(train[,c(5:8,14,19:27)],test[,c(5:8,14,19:27)],train$fracture, prob = TRUE, k = i)
+  table(classifications,test$fracture)
+  CM = confusionMatrix(table(classifications,test$fracture), positive = "Yes")
+  masterAcc[j,i] = CM$overall[1]
+}
+
+}
+
+MeanAcc = colMeans(masterAcc)
+
+plot(seq(1,numks,1),MeanAcc, type = "l")
+```
+Let's run a Cross Validation on the model:
+```{r}
+#Internal CV for continuous variables
+classifications = knn.cv(bone[,c(5,7,14)],bone$fracture,prob = TRUE, k = 15)
+confusionMatrix(table(classifications,bone$fracture), positive = "Yes")
+
+#Internal CV for all variables
+classifications = knn.cv(bone[,c(5:8,14,19:27)],bone$fracture,prob = TRUE, k = 15)
+confusionMatrix(table(classifications,bone$fracture), positive = "Yes")
+
+#Internal CV for custom model
+classifications = knn.cv(bone[,c(5,7,19,21:22,24:27)],bone$fracture,prob = TRUE, k = 15)
+confusionMatrix(table(classifications,bone$fracture), positive = "Yes")
+
+```
+
+```{r}
+fitControl<-trainControl(method="repeatedcv",number=10,repeats=1,classProbs=TRUE, summaryFunction=mnLogLoss)
+knn_model <-train(fracture ~ age+height+fracscore+priorfrac_num+premeno_num+
+                    momfrac_num+armassist_num+smoke_num+bonemed_num+
+                    bonemed_fu_num+bonetreat_num+raterisk_num,
+                           data=dftrain,
+                    method="knn",
+                    trControl=fitControl,
+                    tuneLength=5,
+                             metric="logLoss")
+```
+
+```{r}
+# knn_model1
+knn1.predprobs <- predict(knn_model1, dftrain, type = "prob")[,"Yes"]
+knn1.roc <- roc(response=dftrain$fracture, predictor = knn1.predprobs, levels = c("No", "Yes"))
+
+plot(knn1.roc, col = "#990943", print.thres="best",lwd = 2, main = "ROC Curves Comparison")
+cat("KNN AUROC\n")
+auc(knn1.roc)
+
+# knn_model2
+knn2.predprobs <- predict(knn_model2, dftrain, type = "prob")[,"Yes"]
+knn2.roc <- roc(response=dftrain$fracture, predictor = knn2.predprobs, levels = c("No", "Yes"))
+
+plot(knn2.roc, col = "#08A338", print.thres="best",lwd = 2, main = "ROC Curves Comparison")
+cat("KNN AUROC\n")
+auc(knn2.roc)
+
+# knn_model3
+knn3.predprobs <- predict(knn_model3, dftrain, type = "prob")[,"Yes"]
+knn3.roc <- roc(response=dftrain$fracture, predictor = knn3.predprobs, levels = c("No", "Yes"))
+
+plot(knn3.roc, col = "#3908A3", print.thres="best",lwd = 2, main = "ROC Curves Comparison")
+cat("KNN AUROC\n")
+auc(knn3.roc)
+
+# knn_model4
+knn4.predprobs <- predict(knn_model4, dftrain, type = "prob")[,"Yes"]
+knn4.roc <- roc(response=dftrain$fracture, predictor = knn4.predprobs, levels = c("No", "Yes"))
+
+plot(knn4.roc, col = "salmon", print.thres="best",lwd = 2, main = "ROC Curves Comparison")
+cat("KNN AUROC\n")
+auc(knn4.roc)
+
+# All 4 Models
+plot(knn1.roc, col = "#990943", print.thres="best",lwd = 2, main = "ROC Curves Comparison")
+lines(knn2.roc, col = "#08A338", lwd = 2)
+lines(knn3.roc, col = "#3908A3", lwd = 2)
+lines(knn4.roc, col = "salmon", lwd = 2)
+legend("bottomright", legend = c("K=3, Cont. Var", "K=15, Cont. Var","K=15, All variables","K=15, Custom Complex Model"), col = c("#990943", "#08A338","#3908A3","salmon"), lwd = 2)
+```
+
+Inspect Probabilities
+
+Source: https://shihchingfu.github.io/knn-caret-example/#
+```{r}
+class_colors <- c("#005d8c", "#ec9d3f")
+
+# Knn Model 1
+knn1.probabilities <- dftrain %>%
+  mutate(Predicted_prob = knn1.predprobs)
+
+knn1.probabilities %>%
+  ggplot() +
+  aes(x = Predicted_prob, fill = fracture) +
+  geom_histogram(bins = 20) +
+  labs(x = "Probability", y = "Count", title = "Distribution of predicted probabilities" ) +
+  scale_color_manual(values = class_colors) +
+  scale_fill_manual(values = class_colors)
+
+# Knn Model 2
+knn2.probabilities <- dftrain %>%
+  mutate(Predicted_prob = knn2.predprobs)
+
+knn2.probabilities %>%
+  ggplot() +
+  aes(x = Predicted_prob, fill = fracture) +
+  geom_histogram(bins = 20) +
+  labs(x = "Probability", y = "Count", title = "Distribution of predicted probabilities" ) +
+  scale_color_manual(values = class_colors) +
+  scale_fill_manual(values = class_colors)
+
+# Knn Model 3
+knn3.probabilities <- dftrain %>%
+  mutate(Predicted_prob = knn1.predprobs)
+
+knn3.probabilities %>%
+  ggplot() +
+  aes(x = Predicted_prob, fill = fracture) +
+  geom_histogram(bins = 20) +
+  labs(x = "Probability", y = "Count", title = "Distribution of predicted probabilities" ) +
+  scale_color_manual(values = class_colors) +
+  scale_fill_manual(values = class_colors)
+
+# Knn Model 4
+knn4.probabilities <- dftrain %>%
+  mutate(Predicted_prob = knn1.predprobs)
+
+knn4.probabilities %>%
+  ggplot() +
+  aes(x = Predicted_prob, fill = fracture) +
+  geom_histogram(bins = 20) +
+  labs(x = "Probability", y = "Count", title = "Distribution of predicted probabilities" ) +
+  scale_color_manual(values = class_colors) +
+  scale_fill_manual(values = class_colors)
+```
+
+Fine tuning KNN threshholds
+
+Source: https://shihchingfu.github.io/knn-caret-example/#
+```{r}
+# KNN Model 1
+knn1.probabilities <- knn1.probabilities %>%
+  mutate(class = ifelse(Predicted_prob > 0.24, "Yes", "No")) %>%
+  mutate(class = factor(class))
+confusionMatrix(table(knn1.probabilities$class,dftrain$fracture), positive = "Yes")
+
+# KNN Model 2
+knn2.probabilities <- knn2.probabilities %>%
+  mutate(class = ifelse(Predicted_prob > 0.282, "Yes", "No")) %>%
+  mutate(class = factor(class))
+confusionMatrix(table(knn2.probabilities$class,dftrain$fracture), positive = "Yes")
+
+# KNN Model 3
+knn3.probabilities <- knn3.probabilities %>%
+  mutate(class = ifelse(Predicted_prob > 0.209, "Yes", "No")) %>%
+  mutate(class = factor(class))
+confusionMatrix(table(knn3.probabilities$class,dftrain$fracture), positive = "Yes")
+
+# KNN Model 4
+knn4.probabilities <- knn4.probabilities %>%
+  mutate(class = ifelse(Predicted_prob > 0.262, "Yes", "No")) %>%
+  mutate(class = factor(class))
+confusionMatrix(table(knn4.probabilities$class,dftrain$fracture), positive = "Yes")
+
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
