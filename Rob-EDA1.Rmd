@@ -43,8 +43,8 @@ glow_bonemed variables:
 ```{r, echo=F, fig.width=7.5, fig.height=7.5}
 library(graphics)
 bone <- glow_bonemed
-#Survived = 1, Perished = 0.  Therefore, salmon means perished, turquoise means survived.
-class_colors <- c("salmon", "turquoise")
+#Survived = 1, Perished = 0.  Therefore, #005d8c means perished, #ec9d3f means survived.
+class_colors <- c("#005d8c", "#ec9d3f")
 
 #Excluding IDs because they don't describe the problem.
 exclude_vars <- c("sub_id", "site_id", "phy_id")
@@ -82,7 +82,7 @@ for (variable in factor_list) {
     summarise(cnt = n()) %>%
     mutate(perc = round(cnt / sum(cnt), 4))
   
-  class_colors <- c("No" = "salmon", "Yes" = "turquoise")
+  class_colors <- c("No" = "#005d8c", "Yes" = "#ec9d3f")
   
   plot <- ggplot(g, aes(x = !!as.name(variable), y = perc, colour = fracture)) +
     geom_bar(aes(fill = fracture), stat = "identity", position = "dodge") +
@@ -116,7 +116,10 @@ print(final_plot)
 ```
 
 ```{r loess_list, fig.width=6, fig.height=4, message=F}
-  #class_colors <- c("No" = "salmon", "Yes" = "turquoise")
+  #class_colors <- c("No" = "#005d8c", "Yes" = "#ec9d3f")
+library(ggplot2)
+library(dplyr)
+library(patchwork)
 
 # Step 1: Create a list of factor variables
 numeric_list <- c("age", "weight", "height", "bmi", "fracscore")
@@ -193,6 +196,7 @@ interactions <-c(
   c("bonemed_fu", "bmi"),    #9
   c("bonetreat",  "weight"),#12
   c("bonetreat",  "bmi"),   #14
+  c("priorfrac",  "age"),   #16
   c("priorfrac",  "weight"),#17
   c("priorfrac",  "bmi"),   #19
   c("momfrac",    "age"),   #26
@@ -202,7 +206,7 @@ interactions <-c(
   c("raterisk",   "weight") #42
 )
 
-inter_nums <- c(2, 4, 7, 8, 9, 12, 14, 17, 19, 26, 27, 29, 38, 42)
+inter_nums <- c(2, 4, 7, 8, 9, 12, 14, 16, 17, 19, 26, 27, 29, 38, 42)
 
 color_scale <- c("red", "blue", "black")
 
@@ -239,15 +243,247 @@ print(grid_plot)
 #Note: when momfrac has an interaction, the numeric may have a poly(2) term
 ```
 
+```{r test_train_split}
+
+library(caret)
+set.seed(1234)
+trainIndex<-createDataPartition(bone$fracture,p=.7,list=F)  #p: proportion of data in train
+
+training<-bone[trainIndex,]
+validate<-bone[-trainIndex,]
+
+```
 
 
 
 
 
+# Complex Model
+
+```{r}
+
+mymodel<-glm(fracture~bonemed+bonemed_fu+bonetreat+priorfrac+age+weight+height
+             +bmi+premeno+momfrac+armassist+smoke+raterisk+fracscore
+             +bonemed:weight
+             +bonemed:bmi
+             +bonemed_fu:weight
+             +bonemed_fu:height
+             +bonemed_fu:bmi
+             +bonetreat:weight
+             +bonetreat:bmi
+             +priorfrac:age
+             +priorfrac:weight
+             +priorfrac:bmi
+             # +momfrac:poly(age,2)
+             # +momfrac:poly(weight,2)
+             # +momfrac:poly(bmi,2)
+             +momfrac:age
+             +momfrac:weight
+             +momfrac:bmi
+             +bonetreat:weight:height**2
+             +smoke:height
+             +raterisk:weight
+             +bmi:weight:height,
+             data=training,family="binomial")
+summary(mymodel)
+
+cat("\n##### e transform odds ratio #####\n")
+exp(coef(mymodel))
+# cat("\n##### CI @ 90% #####\n")
+# exp(confint(mymodel, level=0.95))
+
+```
+
+```{r}
+
+fitControl<-trainControl(method="repeatedcv",number=10,repeats=1,classProbs=TRUE, summaryFunction=mnLogLoss)
+set.seed(1234)
+glmnet.fit<-train(fracture~bonemed+bonemed_fu+bonetreat+priorfrac+age+weight+height
+             +bmi+premeno+momfrac+armassist+smoke+raterisk+fracscore
+             +bonemed:weight
+             +bonemed:bmi
+             +bonemed_fu:weight
+             +bonemed_fu:height
+             +bonemed_fu:bmi
+             +bonetreat:weight
+             #+bonetreat:bmi
+             +bonetreat:weight:poly(height,2)
+             +priorfrac:age
+             +priorfrac:weight
+             +priorfrac:bmi
+             +momfrac:poly(age,2)
+             +momfrac:poly(weight,2)
+             +momfrac:poly(bmi,2)
+             # +momfrac:age
+             # +momfrac:weight
+             # +momfrac:bmi
+             +smoke:height
+             +raterisk:weight
+             +bmi:weight:height,
+                    data=training,
+                    method="glmnet",
+                    trControl=fitControl,
+                    metric="logLoss")
+#coef(glmnet.fit$finalModel)
+# This makes a huge table that is hard to read.
 
 
 
+opt.pen<-glmnet.fit$finalModel$lambdaOpt #penalty term
+  coef(glmnet.fit$finalModel,opt.pen)
+  
+```
+
+```{r}
+
+fitControl<-trainControl(method="repeatedcv",number=5,repeats=1,classProbs=TRUE, summaryFunction=mnLogLoss)
+
+
+complex_model<-train(fracture~
+               
+               height
+             +bonemed     # Difference in ratios
+             +bonemed_fu  # Difference in ratios
+             +bonetreat   # Difference in ratios
+             +priorfrac   # Difference in ratios
+             # +age
+             # +weight
+             # +bmi
+             # +premeno
+             +momfrac
+             +armassist   # Difference in ratios
+             # +smoke
+             +raterisk    # Difference in ratios
+             # +fracscore
+             # +bonemed:weight
+             # +bonemed:bmi
+             # +bonemed_fu:weight
+             # +bonemed_fu:height
+             +bonemed_fu:bmi
+             # +bonetreat:weight
+             # +bonetreat:bmi
+             # +priorfrac:age
+             # +priorfrac:weight
+             +priorfrac:bmi
+             # +momfrac:poly(age,2)
+             +momfrac:poly(weight,2)
+             # +momfrac:poly(bmi,2)
+             # +momfrac:age
+             # +momfrac:weight
+             # +momfrac:bmi
+             # +smoke:height
+             +raterisk:weight
+             # +bmi:weight:height
+             ,
+             data=training,
+             method="glmnet",
+             trControl=fitControl,
+             metric="logLoss")
+#summary(complex_model)
+
+# cat("\n##### e transform odds ratio #####\n")
+# exp(coef(complex_model))
+# cat("\n##### CI @ 90% #####\n")
+# exp(confint(complex_model, level=0.95))
+
+```
+
+```{r}
+library(pROC)
+complex_predictions <- predict(complex_model, training, type = "prob")[,"Yes"]
+
+# use ROC to help tune the threshold
+complex.roc <- roc(response = training$fracture, predictor = complex_predictions,
+                  levels = c("No", "Yes"))
+
+# Compute the threshold for maximum sensitivity
+max_sens_threshold <- complex.roc$thresholds[which.max(complex.roc$sensitivities)]
+cat("Max Sensitivity Threshold: ", max_sens_threshold,"\n")
+max_spec_threshold <- complex.roc$thresholds[which.max(complex.roc$specificities)]
+cat("Max Specificity Threshold: ", max_spec_threshold,"\n")
+best_threshold <- coords(complex.roc, "best")$threshold
+cat("Best Overall Threshold:    ", best_threshold,"\n\n\n")
+
+# Plot the ROC curve and add a vertical line at max sensitivity threshold
+plot(complex.roc, col = "blue",print.thres="best", lwd = 2, main = "ROC Curve with Max Sensitivity Threshold")
+
+
+#abline(v = best_threshold, col = "red", lty = 2)
+legend("bottomright", legend = c("Complex Model", "Max Sensitivity Threshold"), col = c("blue", "red"), lwd = 2)
 
 
 
+cat("GLMNET AUROC\n")
+auc(complex.roc)
+#cat("KNN AUROC\n")
+#auc(knn.roc)
+
+#Getting confusion matrix
+threshold = .3
+complex.preds <- factor(ifelse(predictions > threshold, "No", "Yes"),
+                    levels = c("No", "Yes"))
+
+# Set the factor levels of lda.preds to match bc$diagnosis
+complex.preds <- factor(complex.preds, levels = levels(training$fracture))
+
+confusion_complex <- confusionMatrix(data = complex.preds, reference = training$fracture, positive = "Yes")
+
+confusion_complex
+```
+
+```{r}
+#library(dummies)
+#pc.result2<-prcomp(bone[, -(1:3)],scale.=T)
+bone_exclude <- c(1:3, which(names(bone)=="fracture"))
+bone_select <- bone[, -bone_exclude]
+bone_encoded <- data.frame(sapply(bone_select, function(col) if(is.factor(col)) as.numeric(col) else col))
+
+
+pc.bone.result<-prcomp(bone_encoded, scale.=T)
+pc_bone_data <- data.frame(pc.bone.result$x, fracture = bone$fracture)
+#head(pc_bone_data)
+
+#scree plot for optimization
+ideal_variance <- 0.9
+eigenvals <- pc.bone.result$sdev^2
+plot(eigenvals/sum(eigenvals), type="l", main="Scree Plot", ylab="Prop. Var. Explained", xlab="PC #", ylim=c(0,1))
+cumulative.prop <- cumsum(eigenvals/sum(eigenvals))
+lines(cumulative.prop, lty=2)
+abline(h=ideal_variance, col="red", lty=2)
+pc_number <- which(cumulative.prop >= ideal_variance)[1]
+message <- paste0("For ", ideal_variance*100, "% of total variance, ", pc_number, " Principle Components required.\n\n", sep="")
+
+abline(v=pc_number, col="blue", lty=3)
+
+# Add the message to the x-axis label
+mtext(message, side=1, line=4)
+
+```
+
+```{r}
+
+pc_select <- data.frame(pc.bone.result$x[, 1:8], fracture = pc_bone_data$fracture)
+#head(pc_select)
+
+
+complex_model_pca<-train(fracture~.
+             ,
+             data=pc_select,
+             method="lda",
+             trControl=fitControl,
+             metric="logLoss")
+
+predictions <- predict(complex_model_pca, pc_select, type = "prob")[,"Yes"]
+
+#Getting confusion matrix
+threshold = 0.5
+complex.pca.preds <- factor(ifelse(predictions > threshold, "No", "Yes"),
+                    levels = c("No", "Yes"))
+
+complex.pca.preds <- factor(complex.pca.preds, levels = levels(pc_select$fracture))
+
+head(complex.pca.preds)
+
+confusionMatrix(data = complex.pca.preds, reference = pc_select$fracture, positive = "Yes")
+```
 
