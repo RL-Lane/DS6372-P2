@@ -438,7 +438,7 @@ opt.pen<-glmnet.fit$finalModel$lambdaOpt #penalty term
 This confirms that at least some of the interaction terms may have a significant contribution to the output.  In addition, it supports the idea that there may in fact be a polynomial interaction between momfrac and age, as well as momfrac and weight.  The last step of model training for now is to look at validation scores.
 
 ```{r}
-library(pROC)
+# library(pROC)
 complex_predictions <- predict(complex_model, validate, type = "prob")[,"No"]
 
 # use ROC to help tune the threshold
@@ -479,6 +479,86 @@ confusion_complex <- confusionMatrix(data = complex.preds, reference = validate$
 
 confusion_complex
 ```
+
+Some of this performance has been lower than hoped
+
+```{r pca_vs_complex}
+# Exclude the response variable "fracture" and any other unwanted columns
+train_exclude <- c(1:3, which(names(training) == "fracture"))
+train_select <- training[, -train_exclude]
+
+# Perform PCA on the selected features
+
+train_encoded <- data.frame(sapply(train_select, function(col) if(is.factor(col)) as.numeric(col) else col))
+pc.train.result<-prcomp(train_encoded, scale.=T)
+pc_train_data <- data.frame(pc.train.result$x, fracture = training$fracture)
+
+#scree plot for optimization
+ideal_variance <- 0.9
+eigenvals <- pc.train.result$sdev^2
+plot(eigenvals/sum(eigenvals), type="l", main="Scree Plot", ylab="Prop. Var. Explained", xlab="PC #", ylim=c(0,1))
+cumulative.prop <- cumsum(eigenvals/sum(eigenvals))
+lines(cumulative.prop, lty=2)
+abline(h=ideal_variance, col="red", lty=2)
+pc_number <- which(cumulative.prop >= ideal_variance)[1]
+message <- paste0("For ", ideal_variance*100, "% of total variance, ", pc_number, " Principle Components required.\n\n", sep="")
+
+abline(v=pc_number, col="blue", lty=3)
+
+# Add the message to the x-axis label
+mtext(message, side=1, line=4)
+
+
+# TRAIN THE PCA
+pc_select <- data.frame(pc.train.result$x[, 1:8], fracture = pc_train_data$fracture)
+#head(pc_select)
+
+
+complex_model_pca<-train(fracture~.
+             ,
+             data=pc_select,
+             method="lda",
+             trControl=fitControl,
+             metric="logLoss")
+
+
+# TRANSFORM VALIDLATE SET FOR PCA
+pca.validation_select <- validate[, -train_exclude]  # Exclude the same columns as in training
+pca.validation_encoded <- data.frame(sapply(pca.validation_select, function(col) if(is.factor(col)) as.numeric(col) else col))
+pca.validation_transformed <- predict(pc.train.result, newdata = pca.validation_encoded)
+
+# Predict using the complex_model_pca trained on training data
+validate_predictions <- predict(complex_model_pca, pca.validation_transformed, type = "prob")[,"Yes"]
+
+
+# use ROC to help tune the threshold
+pca.roc <- roc(response = validate$fracture, predictor = validate_predictions,levels = c("No", "Yes"))
+plot(pca.roc, print.thres = "best")
+
+
+
+threshold <- 0.23
+
+# Predict on the PCA-processed validation data
+pca.validate_predictions <- predict(complex_model_pca, pca.validation_transformed, type = "prob")[,"Yes"]
+
+# Create predicted labels based on the threshold
+complex_pca_preds <- factor(ifelse(pca.validate_predictions > threshold, "Yes", "No"),
+                            levels = c("No", "Yes"))
+
+# Set factor levels to match the actual labels in validate
+complex_pca_preds <- factor(complex_pca_preds, levels = levels(validate$fracture))
+
+# Calculate confusion matrix
+confusion_complex_pca <- confusionMatrix(data = complex_pca_preds,
+                                         reference = validate$fracture,
+                                         positive = "Yes")
+
+# Display the confusion matrix
+confusion_complex_pca
+```
+
+
 
 ## QDA Model
 
@@ -605,6 +685,8 @@ cat("Average AUROC:", avg_auroc, "\n")
 roc_avg <- roc(validate$fracture, as.numeric(predict(qda.fit, validate)$posterior[, 2]))
 plot(roc_avg, main = "Average ROC Curve QDA", print.auc = FALSE)
 
+# For use when comparing competing models
+qda.roc <-roc_avg
 ```
 
 We conducted an assessment of the equal variance assumption to determine whether Linear Discriminant Analysis (LDA) or Quadratic Discriminant Analysis (QDA) is a more suitable fit. Both box plots and the Levene test for the numerical variables indicated that they exhibit similar variances. However, upon examining the proportions within the categorical variable, a noticeable disparity emerged in most categories when tabulated by fracture status. This discrepancy suggests that the linear assumption necessary for LDA might not be satisfied in our case. So, we've decided to use the Quadratic Discriminant Analysis (QDA) model since the categorical variable proportions show differences that don't align with the linear assumption needed for Linear Discriminant Analysis (LDA).
@@ -843,6 +925,9 @@ lines(knn2.roc, col = "#08A338", lwd = 2)
 lines(knn3.roc, col = "#3908A3", lwd = 2)
 lines(knn4.roc, col = "salmon", lwd = 2)
 legend("bottomright", legend = c("K=3, Cont. Var", "K=15, Cont. Var","K=15, All variables","K=15, Custom Complex Model"), col = c("#990943", "#08A338","#3908A3","salmon"), lwd = 2)
+
+knnfinal.roc <- knn1.roc
+
 ```
 
 
@@ -952,7 +1037,7 @@ cat(combined_text, sep = "\n")
 
 # Model Scores
 
-```{r}
+```{r model_score_confusion_matrix}
 knn1.probabilities <- knn1.probabilities %>%
   mutate(class = ifelse(Predicted_prob > 0.24, "Yes", "No")) %>%
   mutate(class = factor(class))
@@ -967,22 +1052,47 @@ conf2 <- confusionMatrix(predicted_classes, validate$fracture, positive = "Yes")
 
 
 cat("Model Scores\n\n")
-cat("############ KNN ##############                ############ QDA ##############                ######### Complex Model #########           #### k = 15 (previous feature selection) ###\n")
+cat("############ KNN ##############                ############ QDA ##############                ######### Complex Model #########\n")                # k = 15 (previous feature selection) #\n")
 conf1t <- capture.output(conf1)
 conf2t <- capture.output(conf2)
 conf3t <- capture.output(confusion_complex)
 conf4t <- capture.output(conf4) 
+conf5t <- capture.output(confusion_complex_pca)
 
 
 # Combining the raw text output side by side
 combined_text <- paste(str_pad(conf1t, width=40)
                        , str_pad(conf2t,width=40)
                        , str_pad(conf3t,width=40)
-                       , str_pad(conf4t,width=40)
+                       #, str_pad(conf4t,width=40)
+                       , sep = "\t")
+
+combined_text2 <- paste(str_pad(conf4t,width=40)
+                       , str_pad(conf5t,width=40)
                        , sep = "\t")
 
 # Displaying the combined text output
 cat(combined_text, sep = "\n")
+cat("\n\n# k = 15 (previous feature selection) #        ############ PCA ##############\n")
+cat(combined_text2, sep = "\n")
+
+```
+```{r model_score_AUROC}
+# All 4 Models
+plot(knnfinal.roc, col = "#990943", print.thres="best",lwd = 2, main = "ROC Curves Comparison")
+lines(qda.roc, col = "#08A338", lwd = 2)
+lines(complex.roc, col = "#3908A3",    lwd = 2)
+lines(knn4.roc, col = "salmon", lwd = 2)
+lines(pca.roc, col = "turquoise", lwd = 2)
+legend("bottomright", legend = 
+  c(
+    paste0("KNN (", round(auc(knnfinal.roc),3), " AUROC)"),
+    paste0("QDA (", round(auc(qda.roc),3), " AUROC)"),
+    paste0("Complex MLR (", round(auc(complex.roc),3), " AUROC)"),
+    paste0("Simple MLR (", round(auc(knn4.roc),3), " AUROC)"),
+    paste0("PCA MLR (", round(auc(pca.roc),3), " AUROC)")
+  ),
+  col = c("#990943", "#08A338","#3908A3","salmon","turquoise"), lwd = 2)
 ```
 
 # Conclusion
