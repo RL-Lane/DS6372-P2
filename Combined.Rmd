@@ -325,7 +325,7 @@ confusionMatrix(table(classifications,dftest$fracture), positive = "Yes")
 ```
 
 
-```{r Loop to find best k}
+```{r Loop to find best k, eval = FALSE}
 # Continuous Variables
 # Loop for many k and the average of many training / test partition
 iterations = 500
@@ -460,8 +460,8 @@ knn1.probabilities %>%
   aes(x = Predicted_prob, fill = fracture) +
   geom_histogram(bins = 20) +
   labs(x = "Probability", y = "Count", title = "Distribution of predicted probabilities" ) +
-  scale_color_manual(values = class_colors) +
-  scale_fill_manual(values = class_colors)
+  scale_color_manual(values = class_colors) + xlim(0,1) +
+  scale_fill_manual(values = class_colors) + ylim(0,80)
 
 # Knn Model 2
 knn2.probabilities <- dftrain %>%
@@ -472,8 +472,8 @@ knn2.probabilities %>%
   aes(x = Predicted_prob, fill = fracture) +
   geom_histogram(bins = 20) +
   labs(x = "Probability", y = "Count", title = "Distribution of predicted probabilities" ) +
-  scale_color_manual(values = class_colors) +
-  scale_fill_manual(values = class_colors)
+  scale_color_manual(values = class_colors) + xlim(0,1) +
+  scale_fill_manual(values = class_colors) + ylim(0,80)
 
 # Knn Model 3
 knn3.probabilities <- dftrain %>%
@@ -484,8 +484,8 @@ knn3.probabilities %>%
   aes(x = Predicted_prob, fill = fracture) +
   geom_histogram(bins = 20) +
   labs(x = "Probability", y = "Count", title = "Distribution of predicted probabilities" ) +
-  scale_color_manual(values = class_colors) +
-  scale_fill_manual(values = class_colors)
+  scale_color_manual(values = class_colors) + xlim(0,1) +
+  scale_fill_manual(values = class_colors) + ylim(0,80)
 
 # Knn Model 4
 knn4.probabilities <- dftrain %>%
@@ -496,8 +496,8 @@ knn4.probabilities %>%
   aes(x = Predicted_prob, fill = fracture) +
   geom_histogram(bins = 20) +
   labs(x = "Probability", y = "Count", title = "Distribution of predicted probabilities" ) +
-  scale_color_manual(values = class_colors) +
-  scale_fill_manual(values = class_colors)
+  scale_color_manual(values = class_colors) + xlim(0,1) +
+  scale_fill_manual(values = class_colors) + ylim(0,80)
 ```
 
 Fine tuning KNN threshholds
