@@ -2,12 +2,16 @@
 title: "Analysis of Osteoperosis and Bone Fractures"
 author: 'MSDS 6372: Anish Bhandari, Rob Lane, & Alex Thibeaux'
 date: "`r Sys.Date()`"
-output: word_document
+output:  word_document
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = F)
+
+
 ```
+
+
 
 ```{r libraries, echo=F, message=F}
 library(aplore3)
@@ -16,14 +20,15 @@ library(dplyr)
 library(corrplot)
 library(DataExplorer)
 library(gridExtra)
-library(aplore3)
-library(GGally)
-library(dplyr)
-library(corrplot)
-library(DataExplorer)
-library(gridExtra)
-
-
+library(class)
+library(e1071)
+library(caret)
+library(stringr)
+library(MASS)
+library(pROC)
+library(ggplot2)
+library(patchwork)
+library(car)
 ```
 
 # Introduction
@@ -34,26 +39,27 @@ We'll begin by conducting Exploratory Data Analysis (EDA) and constructing a log
 
 ### glow_bonemed variables:
 
-| **Variable** | **Type**     | **Description**                                                                                                                                     |
-|--------------|--------------|-----------------------------------------------------------------------------------------------------------------------------------------------------|
-| bonemed      | 2-factor     | Bone medications at enrollment (1: No, 2: Yes)                                                                                                      |
-| bonemed_fu   | 2-factor     | Bone medications at follow-up (1: No, 2: Yes)                                                                                                       |
-| bonetreat    | 2-factor     | Bone medications both at enrollment and follow-up (1: No, 2: Yes)                                                                                   |
-| sub_id       | int          | Identification Code (1 - n)                                                                                                                         |
-| site_id      | int          | Study Site (1 - 6)                                                                                                                                  |
-| phy_id       | int          | Physician ID code (128 unique codes)                                                                                                                |
-| priorfrac    | 2-factor     | History of Prior Fracture (1: No, 2: Yes)                                                                                                           |
-| age          | int          | Age at Enrollment (Years)                                                                                                                           |
-| weight       | num          | Weight at enrollment (Kilograms)                                                                                                                    |
-| height       | int          | Height at enrollment (Centimeters)                                                                                                                  |
-| bmi          | num          | Body Mass Index ($\frac{kg}{m^2}$)                                                                                                                  |
-| premeno      | 2-factor     | Menopause before age 45 (1: No, 2: Yes)                                                                                                             |
-| momfrac      | 2-factor     | Mother had hip fracture (1: No, 2: Yes)                                                                                                             |
-| armassist    | 2-factor     | Arms are needed to stand from a chair (1: No, 2: Yes)                                                                                               |
-| smoke        | 2-factor     | Former or current smoker (1: No, 2: Yes)                                                                                                            |
-| raterisk     | 3-factor     | Self-reported risk of fracture (1: Less than others of the same age, <br>2: Same as others of the same age, 3: Greater than others of the same age) |
-| fracscore    | int          | Fracture Risk Score (Composite Risk Score)                                                                                                          |
-| **fracture** | **2-factor** | **Any fracture in first year (1: No, 2: Yes)**                                                                                                      |
+| **Variable** | **Type**     | **Description**                                                                                                                                   |
+|--------------|--------------|---------------------------------------------------------------------------------------------------------------------------------------------------|
+| age          | int          | Age at Enrollment (Years)                                                                                                                         |
+| armassist    | 2-factor     | Arms are needed to stand from a chair (1: No, 2: Yes)                                                                                             |
+| bmi          | num          | Body Mass Index ($\frac{kg}{m^2}$)                                                                                                                |
+| bonemed      | 2-factor     | Bone medications at enrollment (1: No, 2: Yes)                                                                                                    |
+| bonemed_fu   | 2-factor     | Bone medications at follow-up (1: No, 2: Yes)                                                                                                     |
+| bonetreat    | 2-factor     | Bone medications both at enrollment and follow-up (1: No, 2: Yes)                                                                                 |
+| fracscore    | int          | Fracture Risk Score (Composite Risk Score)                                                                                                        |
+| **fracture** | **2-factor** | **Any fracture in first year (1: No, 2: Yes)**                                                                                                    |
+| height       | int          | Height at enrollment (Centimeters)                                                                                                                |
+| momfrac      | 2-factor     | Mother had hip fracture (1: No, 2: Yes)                                                                                                           |
+| phy_id       | int          | Physician ID code (128 unique codes)                                                                                                              |
+| premeno      | 2-factor     | Menopause before age 45 (1: No, 2: Yes)                                                                                                           |
+| priorfrac    | 2-factor     | History of Prior Fracture (1: No, 2: Yes)                                                                                                         |
+| raterisk     | 3-factor     | Self-reported risk of fracture (1: Less than others of the same age, 2:   Same as others of the same age, 3: Greater than others of the same age) |
+| site_id      | int          | Study Site (1 - 6)                                                                                                                                |
+| smoke        | 2-factor     | Former or current smoker (1: No, 2: Yes)                                                                                                          |
+| sub_id       | int          | Identification Code (1 - n)                                                                                                                       |
+| weight       | num          | Weight at enrollment (Kilograms)                                                                                                                  |
+
 
 # Ojective 1  
 ## 1A: EDA
@@ -146,10 +152,8 @@ cat("fracscore: ", tstt(bone$fracscore, bone),"\n")
 ```
 We believe that the ID variables don't have a meaningful affect on the output variable.  Of the above tested variables, only age, height, and fracscore seem to have an impact on the output variable (without checking for the effect of other variables simultaneously).
 
-```{r proportions_list, message=F, fig.width = 7, fig.height = 7}
-library(ggplot2)
-library(dplyr)
-library(patchwork)
+```{r proportions_list, message=F, fig.width = 6.5, fig.height = 6.5}
+
 
 
 # Step 1: Create a list of factor variables
@@ -243,7 +247,7 @@ grid_plot <- wrap_plots(plotlist = plots_list, ncol = 3)
 print(grid_plot)
 ```
 
-There seems to be a slight positive correlation between age and likelihood of fracture, and between fracscore and likelihood of fracture.  Both of these follow reasonable expectations when 
+There seems to be a slight positive correlation between age and likelihood of fracture, and between fracscore and likelihood of fracture.  Both of these follow reasonable expectations when considering expected trends in osteoperosis cases.  The strongest trend shown here, though, is a negative trend with height.  All else equal, it would be reasonable to expect more breakages in taller patients because they can fall a slightly larger distance. 
 
 ```{r loess_interactions, message=F, eval=F}
 color_scale <- c("red","blue","black")
@@ -384,11 +388,718 @@ Logistical Considerations.
 
 ## Complex Model (includes feature selection: Rob)
 
-## LDA / QDA (Anish)
+In an attempt to narrow down the features to just those that predict the outcome the most, feature selection is a useful tool.  It should be noted that while it may help, it is typically not a complete solution to this problem.
 
-## nonparametric (knn: Alex)
+
+```{r feature_selection}
+set.seed(1234)
+
+for (i in 1:length(bone)) {
+  train_indices <- sample(nrow(bone), 0.7 * nrow(bone))
+  training <- bone[train_indices, ]
+  validate <- bone[-train_indices, ]
+}
+  
+fitControl<-trainControl(method="repeatedcv",number=10,repeats=1,classProbs=TRUE, summaryFunction=mnLogLoss)
+set.seed(1234)
+glmnet.fit<-train(fracture~bonemed+bonemed_fu+bonetreat+priorfrac+age+weight+height
+             +bmi+premeno+momfrac+armassist+smoke+raterisk+fracscore
+             +weight:height
+             +bonemed:weight
+             +bonemed:bmi
+             +bonemed_fu:weight
+             +bonemed_fu:height
+             +bonemed_fu:bmi
+             +bonetreat:weight
+             #+bonetreat:bmi
+             +bonetreat:weight:poly(height,2)
+             +priorfrac:age
+             +priorfrac:weight
+             +priorfrac:bmi
+             +momfrac:poly(age,2)
+             +momfrac:poly(weight,2)
+             +momfrac:poly(bmi,2)
+             # +momfrac:age
+             # +momfrac:weight
+             # +momfrac:bmi
+             +smoke:height
+             +raterisk:weight
+             +bmi:weight:height,
+                    data=training,
+                    method="glmnet",
+                    trControl=fitControl,
+                    metric="logLoss")
+#coef(glmnet.fit$finalModel)
+# This makes a huge table that is hard to read.
+
+
+
+opt.pen<-glmnet.fit$finalModel$lambdaOpt #penalty term
+  coef(glmnet.fit$finalModel,opt.pen)
+```
+
+
+This confirms that at least some of the interaction terms may have a significant contribution to the output.  In addition, it supports the idea that there may in fact be a polynomial interaction between momfrac and age, as well as momfrac and weight.  The last step of model training for now is to look at validation scores.
+
+```{r complex_roc}
+# library(pROC)
+complex_predictions <- predict(glmnet.fit, validate, type = "prob")[,"Yes"]
+
+# use ROC to help tune the threshold
+complex.roc <- roc(response = validate$fracture, predictor = complex_predictions,
+                  levels = c("No", "Yes"))
+
+# Compute the threshold for maximum sensitivity
+max_sens_threshold <- complex.roc$thresholds[which.max(complex.roc$sensitivities)]
+cat("Max Sensitivity Threshold: ", max_sens_threshold,"\n")
+max_spec_threshold <- complex.roc$thresholds[which.max(complex.roc$specificities)]
+cat("Max Specificity Threshold: ", max_spec_threshold,"\n")
+best_threshold <- coords(complex.roc, "best")$threshold
+cat("Best Overall Threshold:    ", best_threshold,"\n\n\n")
+
+# Plot the ROC curve and add a vertical line at max sensitivity threshold
+plot(complex.roc, col = "blue",print.thres="best", lwd = 2, main = "ROC Curve")
+
+
+#abline(v = best_threshold, col = "red", lty = 2)
+legend("bottomright", legend = c("Complex Model", "Max Sensitivity Threshold"), col = c("blue", "red"), lwd = 2)
+
+
+
+cat("GLMNET AUROC\n")
+auc(complex.roc)
+#cat("KNN AUROC\n")
+#auc(knn.roc)
+
+#Getting confusion matrix
+threshold = best_threshold
+complex.preds <- factor(ifelse(complex_predictions > threshold, "No", "Yes"),
+                    levels = c("No", "Yes"))
+
+# Set the factor levels of lda.preds to match bc$diagnosis
+complex.preds <- factor(complex.preds, levels = levels(validate$fracture))
+
+confusion_complex <- confusionMatrix(data = complex.preds, reference = validate$fracture, positive = "Yes")
+
+confusion_complex
+```
+
+Some of this performance has been lower than hoped
+
+```{r pca_vs_complex}
+
+
+# Exclude the response variable "fracture" and any other unwanted columns
+train_exclude <- c(1:3, which(names(training) == "fracture"))
+train_select <- training[, -train_exclude]
+
+# Perform PCA on the selected features
+
+train_encoded <- data.frame(sapply(train_select, function(col) if(is.factor(col)) as.numeric(col) else col))
+pc.train.result<-prcomp(train_encoded, scale.=T)
+pc_train_data <- data.frame(pc.train.result$x, fracture = training$fracture)
+
+#scree plot for optimization
+ideal_variance <- 0.9
+eigenvals <- pc.train.result$sdev^2
+plot(eigenvals/sum(eigenvals), type="l", main="Scree Plot", ylab="Prop. Var. Explained", xlab="PC #", ylim=c(0,1))
+cumulative.prop <- cumsum(eigenvals/sum(eigenvals))
+lines(cumulative.prop, lty=2)
+abline(h=ideal_variance, col="red", lty=2)
+pc_number <- which(cumulative.prop >= ideal_variance)[1]
+message <- paste0("For ", ideal_variance*100, "% of total variance, ", pc_number, " Principle Components required.\n\n", sep="")
+
+abline(v=pc_number, col="blue", lty=3)
+
+# Add the message to the x-axis label
+mtext(message, side=1, line=4)
+
+
+# TRAIN THE PCA
+pc_select <- data.frame(pc.train.result$x[, 1:8], fracture = pc_train_data$fracture)
+#head(pc_select)
+
+
+complex_model_pca<-train(fracture~.
+             ,
+             data=pc_select,
+             method="lda",
+             trControl=fitControl,
+             metric="logLoss")
+
+
+# TRANSFORM VALIDLATE SET FOR PCA
+pca.validation_select <- validate[, -train_exclude]  # Exclude the same columns as in training
+pca.validation_encoded <- data.frame(sapply(pca.validation_select, function(col) if(is.factor(col)) as.numeric(col) else col))
+pca.validation_transformed <- predict(pc.train.result, newdata = pca.validation_encoded)
+
+# Predict using the complex_model_pca trained on training data
+validate_predictions <- predict(complex_model_pca, pca.validation_transformed, type = "prob")[,"Yes"]
+
+
+# use ROC to help tune the threshold
+pca.roc <- roc(response = validate$fracture, predictor = validate_predictions,levels = c("No", "Yes"))
+plot(pca.roc, print.thres = "best")
+
+
+
+threshold <- 0.23
+
+# Predict on the PCA-processed validation data
+pca.validate_predictions <- predict(complex_model_pca, pca.validation_transformed, type = "prob")[,"Yes"]
+
+# Create predicted labels based on the threshold
+complex_pca_preds <- factor(ifelse(pca.validate_predictions > threshold, "Yes", "No"),
+                            levels = c("No", "Yes"))
+
+# Set factor levels to match the actual labels in validate
+complex_pca_preds <- factor(complex_pca_preds, levels = levels(validate$fracture))
+
+# Calculate confusion matrix
+confusion_complex_pca <- confusionMatrix(data = complex_pca_preds,
+                                         reference = validate$fracture,
+                                         positive = "Yes")
+
+# Display the confusion matrix
+confusion_complex_pca
+```
+
+
+
+## QDA Model
+
+```{r QDA, message=FALSE, error=FALSE,warning=FALSE}
+
+class_colors <- c("#005d8c", "#ec9d3f")
+# 1 Checking assumptions for equal variance
+## Boxplot Numerical
+
+plot <- list()
+box_variables <- c("weight", "age", "height","bmi","fracscore")
+for(i in box_variables) {
+    plot[[i]] <- ggplot(bone, 
+                        aes_string(x = "fracture", 
+                                   y = i, 
+                                   col = "fracture", 
+                                   fill = "fracture")) + 
+    geom_boxplot(alpha = 0.2) + 
+    theme(legend.position = "none") + 
+    scale_color_manual(values = class_colors) +
+    scale_fill_manual(values = class_colors)
+}
+do.call(grid.arrange, c(plot, nrow = 1))
+
+
+## Plot for Categorical
+
+## Bar Plot of categorical varibles by fracture
+## I don't know how to change the color to class_colors on this one. We can use the one that Rob did with ggplot and was not stacked.
+DataExplorer::plot_bar(bone,by = "fracture", ggtheme = theme_linedraw(), title = "Bar Plot of Categorical Variables by Fracture", nrow = 4, ncol = 4)
+
+## Covariance Ellipse
+#### with age and bmi
+ggplot(bone, aes(x = age, y = bmi, col = fracture)) + 
+    geom_point() + 
+    stat_ellipse() + 
+    scale_color_manual(values = class_colors)+ ggtitle("Ellsipse plot with age and bmi")
+
+###with weight and height
+
+ggplot(bone, aes(x = weight, y = height, col = fracture)) + 
+    geom_point() + 
+    stat_ellipse() + 
+    scale_color_manual(values = class_colors) + ggtitle("Ellsipse plot with weight and height")
+
+##Levene Test
+
+car::leveneTest(bmi ~ fracture, bone)
+
+car::leveneTest( weight ~ fracture, bone)
+car::leveneTest(fracscore ~ fracture, bone)
+
+
+# 2 Run QDA Model 
+
+
+# Number of iterations
+num_iterations <- 500  # Change this to the desired number of iterations
+
+# Initialize variables to store metrics
+sensitivity_list <- numeric(num_iterations)
+specificity_list <- numeric(num_iterations)
+ppv_list <- numeric(num_iterations)
+npv_list <- numeric(num_iterations)
+accuracy_list <- numeric(num_iterations)
+prevalence_list <- numeric(num_iterations)
+auroc_list <- numeric(num_iterations)
+
+# Split the data into training and testing sets (for demonstration purposes)
+set.seed(123)
+
+for (i in 1:num_iterations) {
+  train_indices <- sample(nrow(bone), 0.7 * nrow(bone))
+  training <- bone[train_indices, ]
+  validate <- bone[-train_indices, ]
+
+  # Fit QDA model
+  qda.fit <- qda(fracture ~ factor(bonemed) + factor(bonemed_fu)+ factor(raterisk) + factor(priorfrac) + factor(momfrac)+factor(armassist) +factor(raterisk)+ bonemed_fu:bmi + priorfrac:bmi +momfrac:poly(weight,2) , data = training)
+  
+    # Obtain QDA predictions
+  prediction_qda <- predict(qda.fit, validate)
+  predicted_classes <- prediction_qda$class
+  
+  # Create confusion matrix
+  conf_matrix <- confusionMatrix(predicted_classes, validate$fracture, positive = "Yes")$table
+  
+  
+  # Calculate metrics
+  sensitivity_list[i] <- conf_matrix[2, 2] / sum(conf_matrix[2, ])
+  specificity_list[i] <- conf_matrix[1, 1] / sum(conf_matrix[1, ])
+  ppv_list[i] <- conf_matrix[2, 2] / sum(conf_matrix[, 2])
+  npv_list[i] <- conf_matrix[1, 1] / sum(conf_matrix[, 1])
+  
+  # Calculate accuracy and prevalence
+  total_correct <- sum(diag(conf_matrix))
+  total_samples <- sum(conf_matrix)
+  accuracy_list[i] <- total_correct / total_samples
+  prevalence_list[i] <- (conf_matrix[2, 2] + conf_matrix[2, 1]) / total_samples
+  
+  # Calculate AUROC
+  roc_obj <- roc(validate$fracture, as.numeric(predict(qda.fit, validate)$posterior[, 2]))
+  auroc_list[i] <- auc(roc_obj)
+}
+
+# Calculate average metrics
+avg_sensitivity <- mean(sensitivity_list)
+avg_specificity <- mean(specificity_list)
+avg_ppv <- mean(ppv_list)
+avg_npv <- mean(npv_list)
+avg_accuracy <- mean(accuracy_list)
+avg_prevalence <- mean(prevalence_list)
+avg_auroc <- mean(auroc_list)
+
+# Print average metrics
+cat("Average Sensitivity:", avg_sensitivity, "\n")
+cat("Average Specificity:", avg_specificity, "\n")
+cat("Average PPV:", avg_ppv, "\n")
+cat("Average NPV:", avg_npv, "\n")
+cat("Average Accuracy:", avg_accuracy, "\n")
+cat("Average Prevalence:", avg_prevalence, "\n")
+cat("Average AUROC:", avg_auroc, "\n")
+
+# Create a plot of the Average ROC Curve
+roc_avg <- roc(validate$fracture, as.numeric(predict(qda.fit, validate)$posterior[, 2]))
+plot(roc_avg, main = "Average ROC Curve QDA", print.auc = FALSE)
+
+# For use when comparing competing models
+qda.roc <-roc_avg
+```
+
+We conducted an assessment of the equal variance assumption to determine whether Linear Discriminant Analysis (LDA) or Quadratic Discriminant Analysis (QDA) is a more suitable fit. Both box plots and the Levene test for the numerical variables indicated that they exhibit similar variances. However, upon examining the proportions within the categorical variable, a noticeable disparity emerged in most categories when tabulated by fracture status. This discrepancy suggests that the linear assumption necessary for LDA might not be satisfied in our case. So, we've decided to use the Quadratic Discriminant Analysis (QDA) model since the categorical variable proportions show differences that don't align with the linear assumption needed for Linear Discriminant Analysis (LDA).
+
+We'll stick with the same parameters we used in the previous feature selection for the QDA model. However, we couldn't include two components ("bonetreat" and "raterisk:weight") due to collinearity problems. After running the model 500 times, we got an average accuracy of 0.72, sensitivity of 0.46, specificity of 0.84, and an average AUROC of 0.71.
+
+## KNN
+
+```{r KNN prediction models}
+# Set factors as binaries
+bone$priorfrac_num<-ifelse(bone$priorfrac=="Yes",1,0)
+bone$premeno_num<-ifelse(bone$premeno=="Yes",1,0)
+bone$momfrac_num<-ifelse(bone$momfrac=="Yes",1,0)
+bone$armassist_num<-ifelse(bone$armassist=="Yes",1,0)
+bone$smoke_num<-ifelse(bone$smoke=="Yes",1,0)
+bone$raterisk_num<-ifelse(bone$raterisk=="Less",0,ifelse(bone$raterisk=="Same",1,2))
+bone$bonemed_num<-ifelse(bone$bonemed=="Yes",1,0)
+bone$bonemed_fu_num<-ifelse(bone$bonemed_fu=="Yes",1,0)
+bone$bonetreat_num<-ifelse(bone$bonetreat=="Yes",1,0)
+bone$frac_num<-ifelse(bone$fracture=="Yes",1,0)
+
+# Split our data into a train and test set
+set.seed(123)
+splitPerc = .7
+trainIndices = sample(1:dim(bone)[1],round(splitPerc * dim(bone)[1]))
+dftrain = bone[trainIndices,]
+dftest = bone[-trainIndices,]
+
+# k = 3 for 3 Continuous Variables with Strong Evidence via Ttest
+fitControl<-trainControl(method="repeatedcv",number=10,repeats=1,classProbs=TRUE, summaryFunction=mnLogLoss)
+knn_model1 <-train(fracture ~ age+height+fracscore,
+                           data=dftrain,
+                    method="knn",
+                    trControl=fitControl,
+                    tuneLength=3,
+                             metric="logLoss")
+classifications = knn(dftrain[,c(5,7,14)],dftest[,c(5,7,14)],dftrain$fracture, 
+                      prob = TRUE, k = 3)
+#table(classifications,dftest$fracture)
+conf1 <- confusionMatrix(table(classifications,dftest$fracture), positive = "Yes")
+
+# k = 15 for 3 Continuous Variables with Strong Evidence via Ttest
+fitControl<-trainControl(method="repeatedcv",number=10,repeats=1,classProbs=TRUE, summaryFunction=mnLogLoss)
+knn_model2 <-train(fracture ~ age+height+fracscore,
+                           data=dftrain,
+                    method="knn",
+                    trControl=fitControl,
+                    tuneLength=15,
+                             metric="logLoss")
+classifications = knn(dftrain[,c(5,7,14)],dftest[,c(5,7,14)],dftrain$fracture, 
+                      prob = TRUE, k = 15)
+#table(classifications,dftest$fracture)
+conf2 <- confusionMatrix(table(classifications,dftest$fracture), positive = "Yes")
+
+# k = 15 for all variables
+fitControl<-trainControl(method="repeatedcv",number=10,repeats=1,classProbs=TRUE, summaryFunction=mnLogLoss)
+knn_model3 <-train(fracture ~ age+weight+height+bmi+
+                     fracscore+priorfrac_num+premeno_num+
+                     momfrac_num+armassist_num+smoke_num+bonemed_num+
+                     bonemed_fu_num+bonetreat_num+raterisk_num,
+                           data=dftrain,
+                    method="knn",
+                    trControl=fitControl,
+                    tuneLength=15,
+                             metric="logLoss")
+classifications = knn(dftrain[,c(5:8,14,19:27)],dftest[,c(5:8,14,19:27)],dftrain$fracture, 
+                      prob = TRUE, k = 15)
+#table(classifications,dftest$fracture)
+conf3 <- confusionMatrix(table(classifications,dftest$fracture), positive = "Yes")
+
+# k = 15 for Custom Complex Model
+fitControl<-trainControl(method="repeatedcv",number=10,repeats=1,classProbs=TRUE, summaryFunction=mnLogLoss)
+knn_model4 <-train(fracture ~ age+height+priorfrac_num+
+                     momfrac_num+armassist_num+bonemed_num+
+                     bonemed_fu_num+bonetreat_num+raterisk_num,
+                           data=dftrain,
+                    method="knn",
+                    trControl=fitControl,
+                    tuneLength=15,
+                             metric="logLoss")
+classifications = knn(dftrain[,c(7,19,21,22,24:27)],dftest[,c(7,19,21,22,24:27)],dftrain$fracture, 
+                      prob = TRUE, k = 15)
+#table(classifications,dftest$fracture)
+conf4 <- confusionMatrix(table(classifications,dftest$fracture), positive = "Yes")
+
+
+cat("Confusion Matrices for various KNN models\n\n")
+cat("############ k = 3 ##############                #### k = 15 (cont. variables only) ####         ####### k = 15 (all variables) #######       #### k = 15 (previous feature selection) ###\n")
+conf1t <- capture.output(conf1)
+conf2t <- capture.output(conf2)
+conf3t <- capture.output(conf3)
+conf4t <- capture.output(conf4)
+
+
+# Combining the raw text output side by side
+combined_text <- paste(str_pad(conf1t, width=40)
+                       , str_pad(conf2t,width=40)
+                       , str_pad(conf3t,width=40)
+                       , str_pad(conf4t,width=40)
+                       , sep = "\t")
+
+# Displaying the combined text output
+cat(combined_text, sep = "\n")
+```
+
+
+```{r Loop_to_find_best_k}
+# Continuous Variables
+# Loop for many k and the average of many training / test partition
+iterations = 500
+numks = 30
+
+masterAcc = matrix(nrow = iterations, ncol = numks)
+  
+for(j in 1:iterations)
+{
+  accs = data.frame(accuracy = numeric(30), k = numeric(30))
+  trainIndices = sample(1:dim(bone)[1],round(splitPerc * dim(bone)[1]))
+  train = bone[trainIndices,]
+  test = bone[-trainIndices,]
+  for(i in 1:numks)
+  {
+    classifications = knn(train[,c(5,7,14)],test[,c(5,7,14)],train$fracture, prob = TRUE, k = i)
+    table(classifications,test$fracture)
+    CM = confusionMatrix(table(classifications,test$fracture), positive = "Yes")
+    masterAcc[j,i] = CM$overall[1]
+  }
+
+}
+
+MeanAcc = colMeans(masterAcc)
+
+plot(seq(1,numks,1),MeanAcc, type = "l")
+
+# Continuous & Categorical Variables
+# Loop for many k and the average of many training / test partition
+iterations = 500
+numks = 30
+
+masterAcc = matrix(nrow = iterations, ncol = numks)
+  
+for(j in 1:iterations)
+{
+accs = data.frame(accuracy = numeric(30), k = numeric(30))
+trainIndices = sample(1:dim(bone)[1],round(splitPerc * dim(bone)[1]))
+train = bone[trainIndices,]
+test = bone[-trainIndices,]
+for(i in 1:numks)
+{
+  classifications = knn(train[,c(5:8,14,19:27)],test[,c(5:8,14,19:27)],train$fracture, prob = TRUE, k = i)
+  table(classifications,test$fracture)
+  CM = confusionMatrix(table(classifications,test$fracture), positive = "Yes")
+  masterAcc[j,i] = CM$overall[1]
+}
+
+}
+
+MeanAcc = colMeans(masterAcc)
+
+plot(seq(1,numks,1),MeanAcc, type = "l")
+```
+Let's run a Cross Validation on the model:
+```{r}
+#Internal CV for continuous variables
+classifications = knn.cv(bone[,c(5,7,14)],bone$fracture,prob = TRUE, k = 15)
+conf1 <- confusionMatrix(table(classifications,bone$fracture), positive = "Yes")
+
+#Internal CV for all variables
+classifications = knn.cv(bone[,c(5:8,14,19:27)],bone$fracture,prob = TRUE, k = 15)
+conf2 <- confusionMatrix(table(classifications,bone$fracture), positive = "Yes")
+
+#Internal CV for custom model
+classifications = knn.cv(bone[,c(5,7,19,21:22,24:27)],bone$fracture,prob = TRUE, k = 15)
+conf3 <- confusionMatrix(table(classifications,bone$fracture), positive = "Yes")
+
+cat("# Internal CV for continuous variables #         ### Internal CV for all variables ###         #### Internal CV for custom model ####\n")
+conf1t <- capture.output(conf1)
+conf2t <- capture.output(conf2)
+conf3t <- capture.output(conf3)
+#conf4t <- capture.output(conf4)
+
+
+# Combining the raw text output side by side
+combined_text <- paste(str_pad(conf1t, width=40)
+                       , str_pad(conf2t,width=40)
+                       , str_pad(conf3t,width=40)
+                       #, str_pad(conf4t,width=40)
+                       , sep = "\t")
+
+# Displaying the combined text output
+cat(combined_text, sep = "\n")
+
+```
+
+Final KNN Model:  
+
+
+```{r}
+# knn_model1
+knn1.predprobs <- predict(knn_model1, dftrain, type = "prob")[,"Yes"]
+knn1.roc <- roc(response=dftrain$fracture, predictor = knn1.predprobs, levels = c("No", "Yes"))
+
+# plot(knn1.roc, col = "#990943", print.thres="best",lwd = 2, main = "ROC Curves Comparison")
+cat("KNN #1 AUROC\n")
+auc(knn1.roc)
+
+# knn_model2
+knn2.predprobs <- predict(knn_model2, dftrain, type = "prob")[,"Yes"]
+knn2.roc <- roc(response=dftrain$fracture, predictor = knn2.predprobs, levels = c("No", "Yes"))
+
+# plot(knn2.roc, col = "#08A338", print.thres="best",lwd = 2, main = "ROC Curves Comparison")
+cat("KNN #2 AUROC\n")
+auc(knn2.roc)
+
+# knn_model3
+knn3.predprobs <- predict(knn_model3, dftrain, type = "prob")[,"Yes"]
+knn3.roc <- roc(response=dftrain$fracture, predictor = knn3.predprobs, levels = c("No", "Yes"))
+
+# plot(knn3.roc, col = "#3908A3", print.thres="best",lwd = 2, main = "ROC Curves Comparison")
+cat("KNN #3 AUROC\n")
+auc(knn3.roc)
+
+# knn_model4
+knn4.predprobs <- predict(knn_model4, dftrain, type = "prob")[,"Yes"]
+knn4.roc <- roc(response=dftrain$fracture, predictor = knn4.predprobs, levels = c("No", "Yes"))
+
+# plot(knn4.roc, col = "salmon", print.thres="best",lwd = 2, main = "ROC Curves Comparison")
+cat("KNN #4 AUROC\n")
+auc(knn4.roc)
+
+cat("Note: KNN # corresponds with legend in the following chart.\n")
+
+# All 4 Models
+plot(knn1.roc, col = "#990943", print.thres="best",lwd = 2, main = "ROC Curves Comparison")
+lines(knn2.roc, col = "#08A338", lwd = 2)
+lines(knn3.roc, col = "#3908A3", lwd = 2)
+lines(knn4.roc, col = "salmon", lwd = 2)
+legend("bottomright", legend = c("K=3, Cont. Var", "K=15, Cont. Var","K=15, All variables","K=15, Custom Complex Model"), col = c("#990943", "#08A338","#3908A3","salmon"), lwd = 2)
+
+knnfinal.roc <- knn1.roc
+
+```
+
+
+Inspect Probabilities
+
+Source: https://shihchingfu.github.io/knn-caret-example/#
+```{r}
+class_colors <- c("#005d8c", "#ec9d3f")
+
+# Knn Model 1
+knn1.probabilities <- dftrain %>%
+  mutate(Predicted_prob = knn1.predprobs)
+
+knn1.probabilities %>%
+  ggplot() +
+  aes(x = Predicted_prob, fill = fracture) +
+  geom_histogram(bins = 20) +
+  labs(x = "Probability", y = "Count", title = "Distribution of predicted probabilities" ) +
+  scale_color_manual(values = class_colors) +
+  scale_fill_manual(values = class_colors)
+
+# Knn Model 2
+knn2.probabilities <- dftrain %>%
+  mutate(Predicted_prob = knn2.predprobs)
+
+knn2.probabilities %>%
+  ggplot() +
+  aes(x = Predicted_prob, fill = fracture) +
+  geom_histogram(bins = 20) +
+  labs(x = "Probability", y = "Count", title = "Distribution of predicted probabilities" ) +
+  scale_color_manual(values = class_colors) +
+  scale_fill_manual(values = class_colors)
+
+# Knn Model 3
+knn3.probabilities <- dftrain %>%
+  mutate(Predicted_prob = knn1.predprobs)
+
+knn3.probabilities %>%
+  ggplot() +
+  aes(x = Predicted_prob, fill = fracture) +
+  geom_histogram(bins = 20) +
+  labs(x = "Probability", y = "Count", title = "Distribution of predicted probabilities" ) +
+  scale_color_manual(values = class_colors) +
+  scale_fill_manual(values = class_colors)
+
+# Knn Model 4
+knn4.probabilities <- dftrain %>%
+  mutate(Predicted_prob = knn1.predprobs)
+
+knn4.probabilities %>%
+  ggplot() +
+  aes(x = Predicted_prob, fill = fracture) +
+  geom_histogram(bins = 20) +
+  labs(x = "Probability", y = "Count", title = "Distribution of predicted probabilities" ) +
+  scale_color_manual(values = class_colors) +
+  scale_fill_manual(values = class_colors)
+```
+
+Fine tuning KNN threshholds
+
+Source: https://shihchingfu.github.io/knn-caret-example/#
+```{r}
+# KNN Model 1
+knn1.probabilities <- knn1.probabilities %>%
+  mutate(class = ifelse(Predicted_prob > 0.24, "Yes", "No")) %>%
+  mutate(class = factor(class))
+conf1 <- confusionMatrix(table(knn1.probabilities$class,dftrain$fracture), positive = "Yes")
+
+# KNN Model 2
+knn2.probabilities <- knn2.probabilities %>%
+  mutate(class = ifelse(Predicted_prob > 0.282, "Yes", "No")) %>%
+  mutate(class = factor(class))
+conf2 <- confusionMatrix(table(knn2.probabilities$class,dftrain$fracture), positive = "Yes")
+
+# KNN Model 3
+knn3.probabilities <- knn3.probabilities %>%
+  mutate(class = ifelse(Predicted_prob > 0.209, "Yes", "No")) %>%
+  mutate(class = factor(class))
+conf3 <- confusionMatrix(table(knn3.probabilities$class,dftrain$fracture), positive = "Yes")
+
+# KNN Model 4
+knn4.probabilities <- knn4.probabilities %>%
+  mutate(class = ifelse(Predicted_prob > 0.262, "Yes", "No")) %>%
+  mutate(class = factor(class))
+conf4 <- confusionMatrix(table(knn4.probabilities$class,dftrain$fracture), positive = "Yes")
+
+
+cat("Confusion Matrices for various KNN models (Tuned Thresholds)\n\n")
+cat("############ k = 3 ##############                #### k = 15 (cont. variables only) ####         ####### k = 15 (all variables) #######       #### k = 15 (previous feature selection) ###\n")
+conf1t <- capture.output(conf1)
+conf2t <- capture.output(conf2)
+conf3t <- capture.output(conf3)
+conf4t <- capture.output(conf4)
+
+
+# Combining the raw text output side by side
+combined_text <- paste(str_pad(conf1t, width=40)
+                       , str_pad(conf2t,width=40)
+                       , str_pad(conf3t,width=40)
+                       , str_pad(conf4t,width=40)
+                       , sep = "\t")
+
+# Displaying the combined text output
+cat(combined_text, sep = "\n")
+```
+
 
 # Model Scores
+
+```{r model_score_confusion_matrix}
+knn1.probabilities <- knn1.probabilities %>%
+  mutate(class = ifelse(Predicted_prob > 0.24, "Yes", "No")) %>%
+  mutate(class = factor(class))
+conf1 <- confusionMatrix(table(knn1.probabilities$class,dftrain$fracture), positive = "Yes")
+
+
+# Obtain QDA predictions
+prediction_qda <- predict(qda.fit, validate)
+predicted_classes <- prediction_qda$class
+# Create confusion matrix
+conf2 <- confusionMatrix(predicted_classes, validate$fracture, positive = "Yes")
+
+
+cat("Model Scores\n\n")
+cat("############ KNN ##############                ############ QDA ##############                ######### Complex Model #########\n")                # k = 15 (previous feature selection) #\n")
+conf1t <- capture.output(conf1)
+conf2t <- capture.output(conf2)
+conf3t <- capture.output(confusion_complex)
+conf4t <- capture.output(conf4) 
+conf5t <- capture.output(confusion_complex_pca)
+
+
+# Combining the raw text output side by side
+combined_text <- paste(str_pad(conf1t, width=40)
+                       , str_pad(conf2t,width=40)
+                       , str_pad(conf3t,width=40)
+                       #, str_pad(conf4t,width=40)
+                       , sep = "\t")
+
+combined_text2 <- paste(str_pad(conf4t,width=40)
+                       , str_pad(conf5t,width=40)
+                       , sep = "\t")
+
+# Displaying the combined text output
+cat(combined_text, sep = "\n")
+cat("\n\n# k = 15 (previous feature selection) #        ############ PCA ##############\n")
+cat(combined_text2, sep = "\n")
+
+```
+```{r model_score_AUROC, fig.width=7, fig.height=5}
+# All 4 Models
+plot(knnfinal.roc, col = "#990943", print.thres="best",lwd = 2, main = "ROC Curves Comparison")
+lines(qda.roc, col = "#08A338", lwd = 2)
+lines(complex.roc, col = "#3908A3",    lwd = 2)
+lines(knn4.roc, col = "salmon", lwd = 2)
+lines(pca.roc, col = "turquoise", lwd = 2)
+legend("bottomright", legend = 
+  c(
+    paste0("KNN (", round(auc(knnfinal.roc),3), " AUROC)"),
+    paste0("QDA (", round(auc(qda.roc),3), " AUROC)"),
+    paste0("Complex MLR (", round(auc(complex.roc),3), " AUROC)"),
+    paste0("Simple MLR (", round(auc(knn4.roc),3), " AUROC)"),
+    paste0("PCA MLR (", round(auc(pca.roc),3), " AUROC)")
+  ),
+  col = c("#990943", "#08A338","#3908A3","salmon","turquoise"), lwd = 2)
+```
 
 # Conclusion
 
