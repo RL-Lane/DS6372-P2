@@ -28,6 +28,7 @@ library(MASS)
 library(pROC)
 library(ggplot2)
 library(patchwork)
+library(car)
 ```
 
 # Introduction
@@ -391,7 +392,7 @@ In an attempt to narrow down the features to just those that predict the outcome
 
 
 ```{r feature_selection}
-set.seed(123)
+set.seed(1234)
 
 for (i in 1:length(bone)) {
   train_indices <- sample(nrow(bone), 0.7 * nrow(bone))
@@ -440,9 +441,9 @@ opt.pen<-glmnet.fit$finalModel$lambdaOpt #penalty term
 
 This confirms that at least some of the interaction terms may have a significant contribution to the output.  In addition, it supports the idea that there may in fact be a polynomial interaction between momfrac and age, as well as momfrac and weight.  The last step of model training for now is to look at validation scores.
 
-```{r}
+```{r complex_roc}
 # library(pROC)
-complex_predictions <- predict(glmnet.fit, validate, type = "prob")[,"No"]
+complex_predictions <- predict(glmnet.fit, validate, type = "prob")[,"Yes"]
 
 # use ROC to help tune the threshold
 complex.roc <- roc(response = validate$fracture, predictor = complex_predictions,
@@ -457,7 +458,7 @@ best_threshold <- coords(complex.roc, "best")$threshold
 cat("Best Overall Threshold:    ", best_threshold,"\n\n\n")
 
 # Plot the ROC curve and add a vertical line at max sensitivity threshold
-plot(complex.roc, col = "blue",print.thres="best", lwd = 2, main = "ROC Curve with Max Sensitivity Threshold")
+plot(complex.roc, col = "blue",print.thres="best", lwd = 2, main = "ROC Curve")
 
 
 #abline(v = best_threshold, col = "red", lty = 2)
