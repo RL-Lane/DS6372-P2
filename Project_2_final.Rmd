@@ -7,7 +7,7 @@ output:  word_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = F)
-
+knitr::opts_chunk$set(warning = F)
 
 ```
 
@@ -29,6 +29,9 @@ library(pROC)
 library(ggplot2)
 library(patchwork)
 library(car)
+library(jtools)
+library(sjPlot)
+library(ResourceSelection)
 ```
 
 # Introduction
@@ -361,6 +364,139 @@ For the top row, middle curve, when the factor (bonemed) is yes (green), there i
 
 ## Multiple Logistic Regression (simple model, no interaction: Alex)
 
+```{r}
+
+
+# Simple Logistic Regression
+
+# Significant Continuous Variables only:
+logistic1<-glm(fracture~age + height + fracscore,data=bone, family="binomial")
+summary(logistic1)
+
+# Transform for interpretation
+exp(coef(logistic1))
+exp(confint(logistic1))
+
+#jtools
+effect_plot(logistic1, pred = age, interval = TRUE, plot.points = TRUE, 
+            jitter = 0.05)
+
+#sjPlot
+plot_model(logistic1,type="pred",terms=c("age","height","fracscore"))
+```
+Feature Selection
+```{r, echo=F}
+# Feature Selection for Simple Model (No interactions or polynomials)
+fitControl<-trainControl(method="repeatedcv",number=5,repeats=1,classProbs=TRUE, summaryFunction=mnLogLoss)
+set.seed(1234)
+#note CV and error metric are not really used here, but logLoss is reported for the final model.
+Step.fit<-train(fracture~age+weight+height+bmi+priorfrac+premeno+momfrac+armassist+
+                  smoke+raterisk+fracscore+bonemed+bonemed_fu+bonetreat,
+                    data=bone,
+                    method="glmStepAIC",
+                    trControl=fitControl,
+                    metric="logLoss")
+coef(Step.fit$finalModel)
+```
+
+
+Best AIC Model:
+```{r Custom_Models}
+set.seed(123)
+splitPerc = .7
+trainIndices = sample(1:dim(bone)[1],round(splitPerc * dim(bone)[1]))
+dftrain = bone[trainIndices,]
+dftest = bone[-trainIndices,]
+# Using variables from best AIC at 405.57
+logistic2<-glm(fracture~ weight + bmi + momfrac + raterisk + fracscore + 
+                 bonemed + bonemed_fu + bonetreat,data=dftrain, family="binomial")
+summary(logistic2)
+
+plot_model(logistic2,type="pred",terms=c("fracscore","weight","bmi","raterisk","momfrac","bonemed","bonemed_fu","bonetreat"))
+
+# Transform for interpretation
+exp(coef(logistic2))
+exp(confint(logistic2))
+
+# Removing insignificant variables
+logistic3<-glm(fracture~ weight + bmi + fracscore + 
+                 bonemed + bonemed_fu + bonetreat,data=bone, family="binomial")
+summary(logistic3)
+
+# Transform for interpretation
+exp(coef(logistic3))
+exp(confint(logistic3))
+```
+Probabilities and Predictions
+```{r}
+class2_colors <- c("#990943", "#08A338","#3908A3","salmon")
+
+# Simple Logistic Regression, Significant Continuous Variables
+logistic1.predprobs <- predict(logistic1, bone, type = "response")
+logistic1.roc <- roc(response=bone$fracture, predictor = logistic1.predprobs, levels = c("No", "Yes"))
+
+#plot(logistic1.roc, col = class2_colors[1], print.thres="best",lwd = 2, main = "ROC Curves Comparison")
+cat("Age, Height & Frac Score AUROC\n")
+auc(logistic1.roc)
+
+# Custom Logistic Regression after Feature Selection
+logistic2.predprobs <- predict(logistic2, bone, type = "response")
+logistic2.roc <- roc(response=bone$fracture, predictor = logistic2.predprobs, levels = c("No", "Yes"))
+
+#plot(logistic2.roc, col = class2_colors[2], print.thres="best",lwd = 2, main = "ROC Curves Comparison")
+cat("Custom Model 2 AUROC\n")
+auc(logistic2.roc)
+
+# Second Custom Logistic Regression after Feature Selection 
+logistic3.predprobs <- predict(logistic3, bone, type = "response")
+logistic3.roc <- roc(response=bone$fracture, predictor = logistic3.predprobs, levels = c("No", "Yes"))
+
+#plot(logistic3.roc, col = class2_colors[3], print.thres="best",lwd = 2, main = "ROC Curves Comparison")
+cat("Custom Model 3 AUROC\n")
+auc(logistic3.roc)
+
+roc.simple <- logistic2.roc
+# All 3 Models
+plot(logistic1.roc, col = class2_colors[1], print.thres="best",lwd = 2, main = "ROC Curves Comparison")
+lines(logistic2.roc, col = class2_colors[2], lwd = 2)
+lines(logistic3.roc, col = class2_colors[3], lwd = 2)
+legend("bottomright", legend = c("Age, Height, & Frac Score", "Custom Model 1","Custom Model 2"), col = class2_colors, lwd = 2)
+```
+Confusion Matrices for Simple Logistic Regression
+```{r}
+# Simple Logistic Regression, Significant Continuous Variables
+logistic1.predprobs <- data.frame(as.numeric(logistic1.predprobs))
+
+logistic1.predprobs <- logistic1.predprobs %>%
+  mutate(class = ifelse(logistic1.predprobs[,1] > 0.284, "Yes", "No")) %>%
+  mutate(class = factor(class))
+confit1 <- confusionMatrix(table(logistic1.predprobs$class,bone$fracture), positive = "Yes")
+
+# Custom Logistic Regression after Feature Selection
+logistic2.predprobs <- data.frame(as.numeric(logistic2.predprobs))
+
+logistic2.predprobs <- logistic2.predprobs %>%
+  mutate(class = ifelse(logistic1.predprobs[,1] > 0.221, "Yes", "No")) %>%
+  mutate(class = factor(class))
+confit2 <- confusionMatrix(table(logistic2.predprobs$class,bone$fracture), positive = "Yes")
+
+# Second Custom Logistic Regression after Feature Selection
+logistic3.predprobs <- data.frame(as.numeric(logistic3.predprobs))
+
+logistic3.predprobs <- logistic3.predprobs %>%
+  mutate(class = ifelse(logistic3.predprobs[,1] > 0.281, "Yes", "No")) %>%
+  mutate(class = factor(class))
+confit3 <- confusionMatrix(table(logistic3.predprobs$class,bone$fracture), positive = "Yes")
+
+cat("Confusion Matrices for Simple Logistic Regression Models\n")
+cat("### Age, Height & Frac Score ###          ##### Custom Model 1 ######          ##### Custom Model 2 ######")
+confit1
+confit2
+confit3
+
+conf.simple <- confit2
+```
+
 
 •	Perform your multiple logistic regression analysis and provide interpretation of the regression coefficients including hypothesis testing, and confidence intervals. For simplicity sake, you do not need to include interactions with this model. Comment on the practical vs statistical significance of the deemed important factors.  
 Logistical Considerations.
@@ -378,15 +514,9 @@ Logistical Considerations.
 
 
 
-•	In this section you will build 3 additional classification models to compare to your model in objective 1.  The goal of this objective is to build a model where prediction performance is prioritized.  One model should be an attempt at a complex logistic regression model including interaction terms or polynomial terms.  One model should be an LDA or QDA.  And the final model should be a nonparametric model such as knn, random forest, classification tree, etc.  
-
-•	There should be a quick discussion on the reasoning for your complexity you tried/used in the complex logistic model.  Perhaps another slide on a deeper dive of EDA or discussion on logistical points based on your own knowledge of the variables.
-
-•	For each model, 6 metrics should be used and reported on the validation set.  The Sensitivity, Specificity, Prevalence, PPV, NPV, and AUROC.  It should be well communicated on what metrics you feel are more important for comparing your models and describing their performance.  Summarize the overall findings and your recommendations for what model you should go with for making future predictions.  Make sure to communicate what threshold you are using that derives many of the metrics.  Excellent projects will effectively communicate why some error metrics may be more important optimize given the practical use cases of the data set used. 
-
 •	Feature selection should be implemented in the logistic model here unless it was done in objective 1 already.
 
-## Complex Model (includes feature selection: Rob)
+## Complex Model 
 
 In an attempt to narrow down the features to just those that predict the outcome the most, feature selection is a useful tool.  It should be noted that while it may help, it is typically not a complete solution to this problem.
 
@@ -438,7 +568,6 @@ opt.pen<-glmnet.fit$finalModel$lambdaOpt #penalty term
   coef(glmnet.fit$finalModel,opt.pen)
 ```
 
-
 This confirms that at least some of the interaction terms may have a significant contribution to the output.  In addition, it supports the idea that there may in fact be a polynomial interaction between momfrac and age, as well as momfrac and weight.  The last step of model training for now is to look at validation scores.
 
 ```{r complex_roc}
@@ -462,7 +591,9 @@ plot(complex.roc, col = "blue",print.thres="best", lwd = 2, main = "ROC Curve")
 
 
 #abline(v = best_threshold, col = "red", lty = 2)
-legend("bottomright", legend = c("Complex Model", "Max Sensitivity Threshold"), col = c("blue", "red"), lwd = 2)
+legend("bottomright", legend = c("Complex Model"
+                                 #,"Max Sensitivity Threshold"
+                                 ), col = c("blue", "red"), lwd = 2)
 
 
 
@@ -473,7 +604,7 @@ auc(complex.roc)
 
 #Getting confusion matrix
 threshold = best_threshold
-complex.preds <- factor(ifelse(complex_predictions > threshold, "No", "Yes"),
+complex.preds <- factor(ifelse(complex_predictions > threshold, "Yes", "No"),
                     levels = c("No", "Yes"))
 
 # Set the factor levels of lda.preds to match bc$diagnosis
@@ -487,7 +618,7 @@ confusion_complex
 Some of this performance has been lower than hoped
 
 ```{r pca_vs_complex}
-
+set.seed(123)
 
 # Exclude the response variable "fracture" and any other unwanted columns
 train_exclude <- c(1:3, which(names(training) == "fracture"))
@@ -517,8 +648,18 @@ mtext(message, side=1, line=4)
 
 # TRAIN THE PCA
 pc_select <- data.frame(pc.train.result$x[, 1:8], fracture = pc_train_data$fracture)
-#head(pc_select)
 
+
+
+plot_ggpairs <- ggpairs(data = pc_select,  title = "PCA #8 Pairs Plot",
+        aes(color = fracture, fill = fracture)) +
+  scale_color_manual(values = class_colors) +
+  scale_fill_manual(values = class_colors  )
+
+print(plot_ggpairs, progress=F, message=F, warning=F)
+
+
+#head(pc_select)
 
 complex_model_pca<-train(fracture~.
              ,
@@ -1062,7 +1203,7 @@ cat("############ KNN ##############                ############ QDA ###########
 conf1t <- capture.output(conf1)
 conf2t <- capture.output(conf2)
 conf3t <- capture.output(confusion_complex)
-conf4t <- capture.output(conf4) 
+conf4t <- capture.output(conf.simple) 
 conf5t <- capture.output(confusion_complex_pca)
 
 
@@ -1078,24 +1219,25 @@ combined_text2 <- paste(str_pad(conf4t,width=40)
                        , sep = "\t")
 
 # Displaying the combined text output
-cat(combined_text, sep = "\n")
-cat("\n\n# k = 15 (previous feature selection) #        ############ PCA ##############\n")
+cat(combined_text, sep = "\n")  
+cat("\n\n########### Simple #############             ############ PCA ##############\n")
 cat(combined_text2, sep = "\n")
 
 ```
+
 ```{r model_score_AUROC, fig.width=7, fig.height=5}
 # All 4 Models
 plot(knnfinal.roc, col = "#990943", print.thres="best",lwd = 2, main = "ROC Curves Comparison")
 lines(qda.roc, col = "#08A338", lwd = 2)
 lines(complex.roc, col = "#3908A3",    lwd = 2)
-lines(knn4.roc, col = "salmon", lwd = 2)
+lines(roc.simple, col = "salmon", lwd = 2)
 lines(pca.roc, col = "turquoise", lwd = 2)
 legend("bottomright", legend = 
   c(
     paste0("KNN (", round(auc(knnfinal.roc),3), " AUROC)"),
     paste0("QDA (", round(auc(qda.roc),3), " AUROC)"),
     paste0("Complex MLR (", round(auc(complex.roc),3), " AUROC)"),
-    paste0("Simple MLR (", round(auc(knn4.roc),3), " AUROC)"),
+    paste0("Simple MLR (", round(auc(roc.simple),3), " AUROC)"),
     paste0("PCA MLR (", round(auc(pca.roc),3), " AUROC)")
   ),
   col = c("#990943", "#08A338","#3908A3","salmon","turquoise"), lwd = 2)
@@ -1103,8 +1245,5 @@ legend("bottomright", legend =
 
 # Conclusion
 
-## Logistical Considerations.
 
-•	Don’t forget PCA can be helpful in various ways throughout your analysis as well as other unsupervised tools such as heatmaps and cluster analysis from Unit 13 and 14.  Its not necessarily expected, but if your EDA is light, think about using these tools to get practice even if its not necessarily practical for your analysis.
-
-•	If using feature selection for objective one, if you are using lasso/glmnet, create your final model using a glm call so that you can obtain all the necessary statistical information and tests.  For objective two, do not forget ROC curves can provide comparison of the models in addition to the error metric table.
+We have found that the best combination of scores can be found within our KNN model.  No model performs the best with every single metric here, but KNN did lead on both Negative Predictive Value and AUROC scores, while also scoring near the top in every metric used in this analysis.  Its strong performance at all decision thresholds is also evident in the above ROC Curve comparison.
